@@ -111,3 +111,73 @@
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
 
+@keyframes ants {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+@keyframes shift-gradient {
+  0% {
+    stop-color: #10b981;
+  }
+  33% {
+    stop-color: #6366f1;
+  }
+  66% {
+    stop-color: #a855f7;
+  }
+  100% {
+    stop-color: #10b981;
+  }
+}
+
+@keyframes shift-gradient-mid {
+  0% {
+    stop-color: #6366f1;
+  }
+  33% {
+    stop-color: #a855f7;
+  }
+  66% {
+    stop-color: #10b981;
+  }
+  100% {
+    stop-color: #6366f1;
+  }
+}
+
+@keyframes shift-gradient-end {
+  0% {
+    stop-color: #a855f7;
+  }
+  33% {
+    stop-color: #10b981;
+  }
+  66% {
+    stop-color: #6366f1;
+  }
+  100% {
+    stop-color: #a855f7;
+  }
+}
+
+.marching-ants-border {
+  stroke-dasharray: 6 4;
+  animation: ants 1.2s linear infinite;
+}
+
+.gradient-stop-1 {
+  animation: shift-gradient 6s linear infinite;
+}
+
+.gradient-stop-2 {
+  animation: shift-gradient-mid 6s linear infinite;
+}
+
+.gradient-stop-3 {
+  animation: shift-gradient-end 6s linear infinite;
+}
+
+
+

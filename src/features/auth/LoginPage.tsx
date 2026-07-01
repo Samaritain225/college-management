@@ -20,7 +20,7 @@ const quotes = [
   { text: "Le but de l'éducation est de remplacer un esprit vide par un esprit ouvert.", author: "Malcolm Forbes" },
   { text: "Investir dans l'éducation, c'est investir dans le plus grand des biens.", author: "Platon" },
   { text: "L'éducation est notre passeport pour l'avenir, car demain appartient à ceux qui s'y préparent aujourd'hui.", author: "Malcolm X" },
-  { text: "Les portes de la sagesse ne sont jamais fermées à ceux à qui veulent apprendre.", author: "Benjamin Franklin" },
+  { text: "Les portes de la sagesse ne sont jamais fermées à ceux qui veulent apprendre.", author: "Benjamin Franklin" },
 ]
 
 export function LoginPage({ onLogin }: LoginPageProps) {
@@ -152,33 +152,59 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         {/* Dark overlay for readability */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
 
-        {/* Fading and layout-adaptive quotes container at the bottom */}
-        <div className="absolute bottom-8 left-12 right-12 z-10 flex flex-col items-start bg-black/10 backdrop-blur-xs border border-white/5 rounded-2xl p-6 transition-all duration-500 ease-in-out max-w-2xl">
-          {/* Quote Text */}
-          <p
-            className={`text-lg md:text-xl font-medium text-white/95 leading-relaxed transition-all duration-500 transform ${
-              fadeState === "in"
-                ? "opacity-100 translate-x-0 blur-none"
-                : "opacity-0 -translate-x-4 blur-xs"
-            }`}
-          >
-            “ {quotes[quoteIndex].text} ”
-          </p>
-
-          {/* Divider & Author */}
-          <div className="flex items-center gap-2.5 mt-4 pt-3 border-t border-white/5 w-full text-white/90">
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-white shadow-xs">
-              <Pencil className="size-3.5 fill-white/10" />
-            </div>
-            <span
-              className={`text-xs md:text-sm font-semibold tracking-wide transition-all duration-500 transform ${
+        {/* Fading and layout-adaptive quotes container at the bottom with a marching ants border effect */}
+        <div className="absolute bottom-8 left-12 right-12 z-10 max-w-2xl w-[calc(100%-6rem)]">
+          {/* SVG container overlaying the border path */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+            <defs>
+              <linearGradient id="ants-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" className="gradient-stop-1" />
+                <stop offset="50%" className="gradient-stop-2" />
+                <stop offset="100%" className="gradient-stop-3" />
+              </linearGradient>
+            </defs>
+            {/* Marching ants dashed path matching the card outline */}
+            <rect
+              x="0"
+              y="0"
+              width="100%"
+              height="100%"
+              rx="16"
+              fill="none"
+              stroke="url(#ants-gradient)"
+              strokeWidth="2"
+              className="marching-ants-border opacity-70"
+            />
+          </svg>
+          
+          {/* Core container content */}
+          <div className="relative flex flex-col items-start bg-black/45 backdrop-blur-md rounded-2xl p-6 transition-all duration-500 ease-in-out w-full">
+            {/* Quote Text */}
+            <p
+              className={`text-lg md:text-xl font-medium text-white/95 leading-relaxed transition-all duration-500 transform ${
                 fadeState === "in"
-                  ? "opacity-100 translate-y-0"
-                  : "opacity-0 translate-y-2"
+                  ? "opacity-100 translate-x-0 blur-none"
+                  : "opacity-0 -translate-x-4 blur-xs"
               }`}
             >
-              {quotes[quoteIndex].author}
-            </span>
+              “ {quotes[quoteIndex].text} ”
+            </p>
+
+            {/* Divider & Author */}
+            <div className="flex items-center gap-2.5 mt-4 pt-3 border-t border-white/5 w-full text-white/90">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-white shadow-xs">
+                <Pencil className="size-3" />
+              </div>
+              <span
+                className={`text-xs md:text-sm font-semibold tracking-wide transition-all duration-500 transform ${
+                  fadeState === "in"
+                    ? "opacity-100 translate-y-0"
+                    : "opacity-0 translate-y-2"
+                }`}
+              >
+                {quotes[quoteIndex].author}
+              </span>
+            </div>
           </div>
         </div>
       </div>
