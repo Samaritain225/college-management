@@ -7,6 +7,13 @@
 // reversing/adjustment row. This is what lets multiple offline devices
 // sync without conflict-resolution logic: two inserts never collide,
 // only edits to the same row would.
+//
+// Auth note: this schema holds NO credentials. Login is online-required
+// against the AdonisJS backend; only a session token is cached locally
+// (outside this synced database, in local secure storage), never
+// replicated to other devices. investors.email exists here for display
+// and reference only — password hashing and verification live entirely
+// on the backend.
 
 export const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS investors (
@@ -14,7 +21,6 @@ export const SCHEMA_STATEMENTS = [
     name TEXT NOT NULL,
     phone TEXT,
     email TEXT,
-    pin_hash TEXT,
     role TEXT NOT NULL DEFAULT 'investor',
     agreed_contribution INTEGER NOT NULL,
     joined_at TEXT NOT NULL,
@@ -49,9 +55,5 @@ export const SCHEMA_STATEMENTS = [
     reverses_expense_id TEXT REFERENCES expenses(id),
     created_at TEXT NOT NULL,
     synced_at TEXT
-  )`,
-  `CREATE TABLE IF NOT EXISTS sync_state (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    last_synced_at TEXT
   )`,
 ]

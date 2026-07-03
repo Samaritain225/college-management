@@ -4,11 +4,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useSettings } from "@/lib/settings"
-import { Lock, Pencil, Eye, EyeOff } from "lucide-react"
-
-interface LoginPageProps {
-  onLogin: () => void
-}
+import { useAuth } from "@/lib/auth"
+import { isApiError } from "@/lib/api"
+import { Lock, Pencil, Eye, EyeOff, AlertTriangle } from "lucide-react"
 
 const quotes = [
   { text: "L'éducation est l'arme la plus puissante pour changer le monde.", author: "Nelson Mandela" },
@@ -23,11 +21,29 @@ const quotes = [
   { text: "Les portes de la sagesse ne sont jamais fermées à ceux qui veulent apprendre.", author: "Benjamin Franklin" },
 ]
 
-export function LoginPage({ onLogin }: LoginPageProps) {
+/** Returns true when the error message describes an account-level block (not wrong credentials). */
+function isAccountBlockedError(message: string): boolean {
+  const lower = message.toLowerCase()
+  return (
+    lower.includes("désactivé") ||
+    lower.includes("deactivated") ||
+    lower.includes("inactive") ||
+    lower.includes("blocked") ||
+    lower.includes("bloqué") ||
+    lower.includes("suspended") ||
+    lower.includes("suspendu")
+  )
+}
+
+export function LoginPage() {
   const { collegeName, collegeLogo } = useSettings()
+  const { login } = useAuth()
+
   const [email, setEmail] = useState("admin@college.ci")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [quoteIndex, setQuoteIndex] = useState(0)
   const [fadeState, setFadeState] = useState<"in" | "out">("in")
 
@@ -43,10 +59,28 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     return () => clearInterval(interval)
   }, [])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onLogin()
+    setError(null)
+    setSubmitting(true)
+
+    try {
+      await login(email, password)
+      // AuthProvider updates user state → App.tsx re-renders with the main app.
+    } catch (err) {
+      if (isApiError(err)) {
+        setError(err.message)
+      } else if (err instanceof Error) {
+        setError(err.message)
+      } else {
+        setError("Une erreur inattendue s'est produite. Veuillez réessayer.")
+      }
+    } finally {
+      setSubmitting(false)
+    }
   }
+
+  const blocked = error !== null && isAccountBlockedError(error)
 
   return (
     <div className="flex min-h-screen w-screen bg-slate-50 font-sans">
@@ -67,7 +101,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 Connexion · {collegeName}
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Accédez à votre espace de gestion budgétaire hors-ligne
+                Accédez à votre espace de gestion budgétaire
               </p>
             </div>
           </div>
@@ -83,28 +117,30 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="email">Email professionnel</Label>
+                  <Label htmlFor="login-email">Email professionnel</Label>
                   <Input
-                    id="email"
+                    id="login-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="nom@college.ci"
                     required
+                    disabled={submitting}
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="password">Mot de passe / PIN</Label>
+                  <Label htmlFor="login-password">Mot de passe</Label>
                   <div className="relative">
                     <Input
-                      id="password"
+                      id="login-password"
                       type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••"
+                      placeholder="••••••••"
                       className="pr-10"
                       required
+                      disabled={submitting}
                     />
                     <button
                       type="button"
@@ -120,24 +156,26 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full mt-2">
-                  Se connecter
+                {/* Error display — visually distinct for account blocks vs wrong credentials */}
+                {error && (
+                  <div
+                    className={`flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs font-medium ${
+                      blocked
+                        ? "bg-amber-50 border border-amber-200 text-amber-800"
+                        : "bg-destructive/8 border border-destructive/20 text-destructive"
+                    }`}
+                  >
+                    <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <Button type="submit" className="w-full mt-2" disabled={submitting}>
+                  {submitting ? "Connexion en cours…" : "Se connecter"}
                 </Button>
               </form>
             </CardContent>
           </Card>
-
-          {/* Seed accounts reference info */}
-          <div className="rounded-lg bg-slate-100/50 p-4 border border-border/50">
-            <h3 className="text-2xs font-semibold text-foreground tracking-wider uppercase mb-1">
-              Identifiants de démonstration
-            </h3>
-            <p className="text-3xs text-muted-foreground leading-relaxed">
-              Email : <span className="font-mono text-foreground select-all">admin@college.ci</span>
-              <br />
-              Code PIN / MDP : <span className="font-mono text-foreground select-all">1234</span>
-            </p>
-          </div>
         </div>
       </div>
 
@@ -152,9 +190,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         {/* Dark overlay for readability */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
 
-        {/* Fading and layout-adaptive quotes container at the bottom with a marching ants border effect */}
+        {/* Fading quotes container */}
         <div className="absolute bottom-8 left-12 right-12 z-10 max-w-2xl w-[calc(100%-6rem)]">
-          {/* SVG container overlaying the border path */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
             <defs>
               <linearGradient id="ants-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -163,7 +200,6 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <stop offset="100%" className="gradient-stop-3" />
               </linearGradient>
             </defs>
-            {/* Marching ants dashed path matching the card outline */}
             <rect
               x="0"
               y="0"
@@ -176,10 +212,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               className="marching-ants-border opacity-70"
             />
           </svg>
-          
-          {/* Core container content */}
+
           <div className="relative flex flex-col items-start bg-black/45 backdrop-blur-md rounded-2xl p-6 transition-all duration-500 ease-in-out w-full">
-            {/* Quote Text */}
             <p
               className={`text-lg md:text-xl font-medium text-white/95 leading-relaxed transition-all duration-500 transform ${
                 fadeState === "in"
@@ -187,10 +221,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                   : "opacity-0 -translate-x-4 blur-xs"
               }`}
             >
-              “ {quotes[quoteIndex].text} ”
+              " {quotes[quoteIndex].text} "
             </p>
 
-            {/* Divider & Author */}
             <div className="flex items-center gap-2.5 mt-4 pt-3 border-t border-white/5 w-full text-white/90">
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-white shadow-xs">
                 <Pencil className="size-3" />

@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatMoney } from "@/lib/utils"
-import { useActiveUser } from "@/lib/active-user"
+import { useAuth } from "@/lib/auth"
 import {
   addExpense,
   addCategory,
@@ -22,7 +22,8 @@ import {
 } from "@/db/queries"
 
 export function ExpensesPage({ onChange }: { onChange?: () => void }) {
-  const { activeUser } = useActiveUser()
+  // Auth is guaranteed by the app shell — user is always non-null here.
+  const { user } = useAuth()
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [categories, setCategories] = useState<BudgetCategory[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -48,8 +49,9 @@ export function ExpensesPage({ onChange }: { onChange?: () => void }) {
     e.preventDefault()
     setError(null)
 
-    // No user, no entry — this is the rule the page exists to enforce.
-    if (!activeUser) return setError("Veuillez choisir votre identité en haut de la page avant d'enregistrer une dépense.")
+    // user is always present here — the app shell enforces auth before
+    // rendering this page. This check is just a TypeScript safety net.
+    if (!user) return
 
     let activeCategoryId = categoryId === "new-category-placeholder" ? "" : categoryId
     if (!activeCategoryId && newCategoryName.trim()) {
@@ -67,7 +69,7 @@ export function ExpensesPage({ onChange }: { onChange?: () => void }) {
       amount: amt,
       description: description.trim(),
       spentAt: new Date().toISOString(),
-      recordedBy: activeUser.id,
+      recordedBy: user.id,
     })
 
     setAmount("")
@@ -89,23 +91,15 @@ export function ExpensesPage({ onChange }: { onChange?: () => void }) {
             {expenses.length} {expenses.length > 1 ? "saisies" : "saisie"} · {formatMoney(totalSpent)} au total
           </p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)} disabled={!activeUser}>
+        <Button onClick={() => setShowForm((s) => !s)}>
           {showForm ? "Annuler" : "Enregistrer une dépense"}
         </Button>
       </header>
 
-      {!activeUser && (
-        <Card className="mb-6 border-amber-200 bg-amber-50/50 text-amber-900">
-          <CardContent className="p-4 text-sm font-sans flex items-start gap-2">
-            <span>Aucun utilisateur actif sélectionné. Choisissez qui vous êtes dans la barre supérieure — chaque dépense doit être attribuée à quelqu'un.</span>
-          </CardContent>
-        </Card>
-      )}
-
-      {showForm && activeUser && (
+      {showForm && user && (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Nouvelle dépense · enregistrée par {activeUser.name}</CardTitle>
+            <CardTitle>Nouvelle dépense · enregistrée par {user.name}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">

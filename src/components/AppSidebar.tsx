@@ -1,5 +1,5 @@
 import * as React from "react"
-import { LayoutDashboard, Users, Receipt, UserCog, Settings } from "lucide-react"
+import { LayoutDashboard, Users, Receipt, Settings, Shield } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -9,22 +9,29 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { useSettings } from "@/lib/settings"
+import type { UserRole } from "@/lib/auth"
 
 type Tab = "dashboard" | "investors" | "expenses" | "users" | "settings"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   currentTab: Tab
   onTabChange: (tab: Tab) => void
+  /** The authenticated user's role — controls which nav items are visible. */
+  userRole: UserRole | undefined
 }
 
-export function AppSidebar({ currentTab, onTabChange, ...props }: AppSidebarProps) {
+export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppSidebarProps) {
   const { collegeName, collegeLogo } = useSettings()
 
-  const items = [
+  const canManageUsers = userRole === "admin" || userRole === "super_admin"
+
+  const mainItems = [
     { id: "dashboard" as Tab, title: "Tableau de bord", icon: LayoutDashboard },
     { id: "investors" as Tab, title: "Investisseurs", icon: Users },
     { id: "expenses" as Tab, title: "Dépenses", icon: Receipt },
-    { id: "users" as Tab, title: "Utilisateurs", icon: UserCog },
+    ...(canManageUsers
+      ? [{ id: "users" as Tab, title: "Utilisateurs", icon: Shield }]
+      : []),
   ]
 
   return (
@@ -45,7 +52,7 @@ export function AppSidebar({ currentTab, onTabChange, ...props }: AppSidebarProp
       </SidebarHeader>
       <SidebarContent className="px-3 py-4 flex flex-col justify-between">
         <SidebarMenu className="gap-1.5">
-          {items.map((item) => (
+          {mainItems.map((item) => (
             <SidebarMenuItem key={item.id}>
               <SidebarMenuButton
                 tooltip={item.title}

@@ -5,7 +5,17 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Upload, X, Save, Info, Building } from "lucide-react"
+import { UsersPage } from "@/features/users/UsersPage"
+import {
+  Upload,
+  X,
+  Save,
+  Info,
+  Building,
+  UserCog,
+  Sun,
+  Moon,
+} from "lucide-react"
 
 export function SettingsPage() {
   const {
@@ -14,6 +24,7 @@ export function SettingsPage() {
     collegeAddress,
     collegePhone,
     academicYear,
+    theme,
     updateSettings,
   } = useSettings()
 
@@ -22,6 +33,7 @@ export function SettingsPage() {
   const [address, setAddress] = useState(collegeAddress)
   const [phone, setPhone] = useState(collegePhone)
   const [year, setYear] = useState(academicYear)
+  const [currentTheme, setCurrentTheme] = useState(theme)
   const [success, setSuccess] = useState(false)
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -30,7 +42,7 @@ export function SettingsPage() {
       const reader = new FileReader()
       reader.onloadend = () => {
         setLogo(reader.result as string)
-      };
+      }
       reader.readAsDataURL(file)
     }
   }
@@ -43,6 +55,7 @@ export function SettingsPage() {
       collegeAddress: address,
       collegePhone: phone,
       academicYear: year,
+      theme: currentTheme,
     })
     setSuccess(true)
     setTimeout(() => setSuccess(false), 3000)
@@ -53,31 +66,41 @@ export function SettingsPage() {
     logo !== collegeLogo ||
     address !== collegeAddress ||
     phone !== collegePhone ||
-    year !== academicYear
+    year !== academicYear ||
+    currentTheme !== theme
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-8">
+    <div className="mx-auto max-w-4xl px-6 py-8">
       <header className="mb-8 space-y-1">
         <h1 className="font-sans text-2xl font-bold tracking-tight text-foreground">
           Paramètres
         </h1>
         <p className="text-sm text-muted-foreground">
-          Gérez l'identité de votre collège et apprenez-en plus sur l'application
+          Gérez l'identité du collège, les utilisateurs & permissions, et l'apparence de l'application
         </p>
       </header>
 
       <Tabs defaultValue="info" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="info" className="flex items-center gap-2">
             <Building className="size-4" />
-            Infos du Collège
+            <span className="hidden sm:inline">Identité</span>
+          </TabsTrigger>
+          <TabsTrigger value="appearance" className="flex items-center gap-2">
+            <Sun className="size-4" />
+            <span className="hidden sm:inline">Apparence</span>
+          </TabsTrigger>
+          <TabsTrigger value="users" className="flex items-center gap-2">
+            <UserCog className="size-4" />
+            <span className="hidden sm:inline">Utilisateurs</span>
           </TabsTrigger>
           <TabsTrigger value="about" className="flex items-center gap-2">
             <Info className="size-4" />
-            À Propos
+            <span className="hidden sm:inline">À Propos</span>
           </TabsTrigger>
         </TabsList>
 
+        {/* Tab 1: College Info */}
         <TabsContent value="info">
           <form onSubmit={handleSave} className="space-y-6">
             <Card>
@@ -87,7 +110,7 @@ export function SettingsPage() {
               <CardContent className="space-y-4">
                 <div className="flex flex-col items-center gap-4 sm:flex-row">
                   {/* Logo Preview */}
-                  <div className="relative flex h-24 w-24 items-center justify-center rounded-xl border border-border bg-slate-50 overflow-hidden shadow-inner">
+                  <div className="relative flex h-24 w-24 items-center justify-center rounded-xl border border-border bg-slate-50 dark:bg-slate-900 overflow-hidden shadow-inner">
                     {logo ? (
                       <>
                         <img src={logo} alt="College Logo" className="h-full w-full object-contain p-2" />
@@ -192,6 +215,74 @@ export function SettingsPage() {
           </form>
         </TabsContent>
 
+        {/* Tab 2: Appearance & Theme Toggle */}
+        <TabsContent value="appearance">
+          <form onSubmit={handleSave} className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-foreground font-semibold text-base">Thème de l'application</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Basculez entre le mode clair et le mode sombre selon vos préférences de lecture.
+                </p>
+                <div className="flex gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentTheme("light")}
+                    className={`flex flex-1 flex-col items-center gap-3 rounded-xl border p-4 text-center transition-all ${
+                      currentTheme === "light"
+                        ? "border-primary bg-accent/40 font-semibold ring-2 ring-primary/25"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted/40"
+                    }`}
+                  >
+                    <Sun className="size-6 text-amber-500" />
+                    <div className="space-y-1">
+                      <p className="text-sm text-foreground">Mode Clair</p>
+                      <p className="text-3xs text-muted-foreground">Arrière-plans clairs et contrastés</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentTheme("dark")}
+                    className={`flex flex-1 flex-col items-center gap-3 rounded-xl border p-4 text-center transition-all ${
+                      currentTheme === "dark"
+                        ? "border-primary bg-accent/40 font-semibold ring-2 ring-primary/25"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted/40"
+                    }`}
+                  >
+                    <Moon className="size-6 text-indigo-400" />
+                    <div className="space-y-1">
+                      <p className="text-sm text-foreground">Mode Sombre</p>
+                      <p className="text-3xs text-muted-foreground">Idéal pour reposer les yeux le soir</p>
+                    </div>
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="flex items-center justify-end gap-4">
+              {success && (
+                <span className="text-sm font-medium text-green-600 transition-all animate-in fade-in">
+                  Thème enregistré avec succès !
+                </span>
+              )}
+              <Button type="submit" disabled={!hasChanges} className="flex items-center gap-2">
+                <Save className="size-4" />
+                Enregistrer
+              </Button>
+            </div>
+          </form>
+        </TabsContent>
+
+        {/* Tab 3: Consolidated Users Management Section */}
+        <TabsContent value="users">
+          <div className="border border-border/60 rounded-xl bg-card/20 p-2 sm:p-4">
+            <UsersPage />
+          </div>
+        </TabsContent>
+
+        {/* Tab 4: About Section */}
         <TabsContent value="about">
           <Card>
             <CardHeader>

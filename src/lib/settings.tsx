@@ -6,6 +6,7 @@ export interface CollegeSettings {
   collegeAddress: string
   collegePhone: string
   academicYear: string
+  theme: "light" | "dark"
 }
 
 interface SettingsContextType extends CollegeSettings {
@@ -18,6 +19,7 @@ const defaultSettings: CollegeSettings = {
   collegeAddress: "",
   collegePhone: "",
   academicYear: "2025 - 2026",
+  theme: "light",
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined)
@@ -40,6 +42,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem("college_settings", JSON.stringify(settings))
     } catch (e) {
       console.error("Failed to save settings:", e)
+    }
+
+    // Apply class to documentElement
+    const root = window.document.documentElement
+    if (settings.theme === "dark") {
+      root.classList.add("dark")
+    } else {
+      root.classList.remove("dark")
     }
   }, [settings])
 

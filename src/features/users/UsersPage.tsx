@@ -1,5 +1,12 @@
+// Users management screen — visible only to admin and super_admin roles.
+//
+// All data comes from the AdonisJS backend REST API via src/lib/api.ts.
+// No local SQLite queries are used here — this is the canonical source of truth
+// for user management (create, edit, deactivate, reactivate).
+
 import React, { useEffect, useState } from "react"
-import { listInvestors, addInvestor, type Investor } from "@/db/queries"
+import { api, isApiError } from "@/lib/api"
+import { useAuth } from "@/lib/auth"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -20,28 +27,87 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { UserPlus } from "lucide-react"
+import { UserPlus, Pencil, Ban, RefreshCw, X, Check } from "lucide-react"
+import { formatMoney } from "@/lib/utils"
+
+// ---------------------------------------------------------------------------
+// Types — camelCase to match backend response exactly
+// ---------------------------------------------------------------------------
+
+interface ApiUser {
+  id: string
+  name: string
+  email: string
+  role: "investor" | "admin" | "super_admin"
+  isActive: boolean
+  agreedContribution: number
+  joinedAt: string
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function roleBadgeVariant(role: ApiUser["role"]): "accent" | "neutral" {
+  return role === "super_admin" || role === "admin" ? "accent" : "neutral"
+}
+
+function roleLabel(role: ApiUser["role"]): string {
+  switch (role) {
+    case "super_admin": return "Super Admin"
+    case "admin": return "Administrateur"
+    default: return "Investisseur"
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export function UsersPage() {
-  const [users, setUsers] = useState<Investor[]>([])
+  const { user: me } = useAuth()
+  const [users, setUsers] = useState<ApiUser[]>([])
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
 
-  // Form state
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [phone, setPhone] = useState("")
-  const [role, setRole] = useState<"admin" | "investor">("investor")
-  const [pin, setPin] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+  // Create form
+  const [showForm, setShowForm] = useState(false)
+  const [createName, setCreateName] = useState("")
+  const [createEmail, setCreateEmail] = useState("")
+  const [createPassword, setCreatePassword] = useState("")
+  const [createRole, setCreateRole] = useState<"investor" | "admin">("investor")
+  const [createContribution, setCreateContribution] = useState("")
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [createSubmitting, setCreateSubmitting] = useState(false)
+
+  // Inline edit state
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState("")
+  const [editEmail, setEditEmail] = useState("")
+  const [editRole, setEditRole] = useState<"investor" | "admin">("investor")
+  const [editContribution, setEditContribution] = useState("")
+  const [editError, setEditError] = useState<string | null>(null)
+  const [editSubmitting, setEditSubmitting] = useState(false)
+
+  // Per-row action error (deactivate/reactivate)
+  const [actionError, setActionError] = useState<Record<string, string>>({})
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+
+  // ---------------------------------------------------------------------------
+  // Load users
+  // ---------------------------------------------------------------------------
 
   async function loadUsers() {
+    setListError(null)
     try {
-      const data = await listInvestors()
-      setUsers(data)
+      const data = await api.get<{ data: { users: ApiUser[] } }>("/users")
+      setUsers(data.data.users)
     } catch (err) {
-      console.error("Failed to load users:", err)
+      if (isApiError(err)) {
+        setListError(err.message)
+      } else {
+        setListError("Impossible de charger les utilisateurs.")
+      }
     } finally {
       setLoading(false)
     }
@@ -51,43 +117,128 @@ export function UsersPage() {
     loadUsers()
   }, [])
 
-  async function handleSubmit(e: React.FormEvent) {
+  // ---------------------------------------------------------------------------
+  // Create user
+  // ---------------------------------------------------------------------------
+
+  async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
-    setError(null)
+    setCreateError(null)
 
-    if (!name.trim()) return setError("Le nom est requis.")
-    if (pin && !/^\d{4}$/.test(pin)) return setError("Le code PIN doit comporter exactement 4 chiffres.")
+    if (!createName.trim()) return setCreateError("Le nom est requis.")
+    if (!createEmail.trim()) return setCreateError("L'email est requis.")
+    if (!createPassword) return setCreateError("Le mot de passe est requis.")
 
-    setSubmitting(true)
+    const contribution = Number(createContribution.replace(/\D/g, ""))
+
+    setCreateSubmitting(true)
     try {
-      await addInvestor({
-        name: name.trim(),
-        email: email.trim() || undefined,
-        phone: phone.trim() || undefined,
-        role,
-        pin: pin || undefined,
-        agreedContribution: 0,
+      await api.post("/users", {
+        name: createName.trim(),
+        email: createEmail.trim(),
+        password: createPassword,
+        role: createRole,
+        agreedContribution: contribution,
       })
-
       // Reset form
-      setName("")
-      setEmail("")
-      setPhone("")
-      setRole("investor")
-      setPin("")
+      setCreateName("")
+      setCreateEmail("")
+      setCreatePassword("")
+      setCreateRole("investor")
+      setCreateContribution("")
       setShowForm(false)
       await loadUsers()
     } catch (err) {
-      console.error("Failed to add user:", err)
-      setError("Erreur lors de la création de l'utilisateur.")
+      if (isApiError(err)) {
+        setCreateError(err.message)
+      } else {
+        setCreateError("Erreur lors de la création de l'utilisateur.")
+      }
     } finally {
-      setSubmitting(false)
+      setCreateSubmitting(false)
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Inline edit
+  // ---------------------------------------------------------------------------
+
+  function startEdit(user: ApiUser) {
+    setEditingId(user.id)
+    setEditName(user.name)
+    setEditEmail(user.email)
+    setEditRole(user.role === "super_admin" ? "admin" : user.role)
+    setEditContribution(String(user.agreedContribution))
+    setEditError(null)
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditError(null)
+  }
+
+  async function handleEdit(userId: string) {
+    setEditError(null)
+    if (!editName.trim()) return setEditError("Le nom est requis.")
+    if (!editEmail.trim()) return setEditError("L'email est requis.")
+
+    setEditSubmitting(true)
+    try {
+      await api.patch(`/users/${userId}`, {
+        name: editName.trim(),
+        email: editEmail.trim(),
+        role: editRole,
+        agreedContribution: Number(editContribution.replace(/\D/g, "")),
+      })
+      setEditingId(null)
+      await loadUsers()
+    } catch (err) {
+      if (isApiError(err)) {
+        setEditError(err.message)
+      } else {
+        setEditError("Erreur lors de la mise à jour.")
+      }
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Deactivate / Reactivate
+  // ---------------------------------------------------------------------------
+
+  async function handleToggleActive(user: ApiUser) {
+    setActionError((prev) => ({ ...prev, [user.id]: "" }))
+    setActionLoading((prev) => ({ ...prev, [user.id]: true }))
+
+    try {
+      const endpoint = user.isActive
+        ? `/users/${user.id}/deactivate`
+        : `/users/${user.id}/reactivate`
+      await api.patch(endpoint)
+      await loadUsers()
+    } catch (err) {
+      const msg =
+        isApiError(err)
+          ? err.message
+          : "Une erreur est survenue."
+      setActionError((prev) => ({ ...prev, [user.id]: msg }))
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [user.id]: false }))
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stats
+  // ---------------------------------------------------------------------------
+
   const totalUsers = users.length
-  const totalAdmins = users.filter((u) => u.role === "admin").length
-  const totalInvestors = users.filter((u) => u.role === "investor").length
+  const totalAdmins = users.filter((u) => u.role === "admin" || u.role === "super_admin").length
+  const totalActive = users.filter((u) => u.isActive).length
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
@@ -97,15 +248,24 @@ export function UsersPage() {
     )
   }
 
+  if (listError) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-8">
+        <p className="text-sm text-destructive">{listError}</p>
+        <Button variant="outline" className="mt-4" onClick={loadUsers}>Réessayer</Button>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
       <header className="mb-8 flex items-center justify-between">
         <div className="space-y-1">
           <h1 className="font-sans text-2xl font-bold tracking-tight text-foreground">
-            Utilisateurs & Permissions
+            Utilisateurs &amp; Permissions
           </h1>
           <p className="text-sm text-muted-foreground">
-            {totalUsers} {totalUsers > 1 ? "membres" : "membre"} enregistrés
+            {totalUsers} {totalUsers > 1 ? "membres" : "membre"} enregistrés · {totalActive} actifs
           </p>
         </div>
         <Button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-2">
@@ -114,71 +274,73 @@ export function UsersPage() {
         </Button>
       </header>
 
-      {/* User Creation Form */}
+      {/* Create form */}
       {showForm && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-foreground font-semibold text-base">Créer un utilisateur</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+            <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="user-name">Nom complet *</Label>
+                <Label htmlFor="cu-name">Nom complet *</Label>
                 <Input
-                  id="user-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  id="cu-name"
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
                   placeholder="Ex. Koné Amadou"
                   required
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="user-email">Email (facultatif)</Label>
+                <Label htmlFor="cu-email">Email *</Label>
                 <Input
-                  id="user-email"
+                  id="cu-email"
                   type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Ex. amadou@wagnon.ci"
+                  value={createEmail}
+                  onChange={(e) => setCreateEmail(e.target.value)}
+                  placeholder="amadou@college.ci"
+                  required
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="user-phone">Téléphone (facultatif)</Label>
+                <Label htmlFor="cu-password">Mot de passe *</Label>
                 <Input
-                  id="user-phone"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Ex. +225 07 00 00 00 00"
+                  id="cu-password"
+                  type="password"
+                  value={createPassword}
+                  onChange={(e) => setCreatePassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="user-role">Rôle</Label>
-                <Select value={role} onValueChange={(val) => setRole(val as "admin" | "investor")}>
-                  <SelectTrigger id="user-role" className="h-10 w-full">
+                <Label htmlFor="cu-role">Rôle</Label>
+                {/* super_admin can only be created via seeder — intentionally omitted */}
+                <Select value={createRole} onValueChange={(val) => setCreateRole(val as "investor" | "admin")}>
+                  <SelectTrigger id="cu-role" className="h-10 w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">Administrateur (lecture / écriture)</SelectItem>
                     <SelectItem value="investor">Investisseur (lecture seule)</SelectItem>
+                    <SelectItem value="admin">Administrateur (lecture / écriture)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="user-pin">Code PIN de sécurité (4 chiffres)</Label>
+                <Label htmlFor="cu-contribution">Contribution convenue (XOF)</Label>
                 <Input
-                  id="user-pin"
-                  type="password"
+                  id="cu-contribution"
                   inputMode="numeric"
-                  maxLength={4}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                  placeholder="Ex. 1234 (optionnel)"
+                  value={createContribution}
+                  onChange={(e) => setCreateContribution(e.target.value)}
+                  placeholder="2 500 000"
                 />
               </div>
               <div className="flex flex-col gap-1.5 justify-end">
-                {error && <p className="text-sm text-destructive">{error}</p>}
-                <Button type="submit" disabled={submitting} className="w-full">
-                  {submitting ? "Enregistrement…" : "Enregistrer l'utilisateur"}
+                {createError && <p className="text-sm text-destructive">{createError}</p>}
+                <Button type="submit" disabled={createSubmitting} className="w-full">
+                  {createSubmitting ? "Enregistrement…" : "Enregistrer l'utilisateur"}
                 </Button>
               </div>
             </form>
@@ -186,15 +348,15 @@ export function UsersPage() {
         </Card>
       )}
 
-      {/* Quick Stats */}
-      <div className="mb-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
+      {/* Quick stats */}
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle>Utilisateurs Totaux</CardTitle>
+            <CardTitle>Membres totaux</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="font-sans text-2xl font-bold text-foreground">{totalUsers}</p>
-            <p className="text-xs text-muted-foreground mt-1">Personnes enregistrées dans la base</p>
+            <p className="text-xs text-muted-foreground mt-1">Personnes enregistrées</p>
           </CardContent>
         </Card>
         <Card>
@@ -203,21 +365,21 @@ export function UsersPage() {
           </CardHeader>
           <CardContent>
             <p className="font-sans text-2xl font-bold text-foreground">{totalAdmins}</p>
-            <p className="text-xs text-muted-foreground mt-1">Droits d'écriture (dépenses & contributions)</p>
+            <p className="text-xs text-muted-foreground mt-1">Droits d'écriture</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle>Investisseurs</CardTitle>
+            <CardTitle>Actifs</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="font-sans text-2xl font-bold text-foreground">{totalInvestors}</p>
-            <p className="text-xs text-muted-foreground mt-1">Accès en lecture seule au tableau de bord</p>
+            <p className="font-sans text-2xl font-bold text-foreground">{totalActive}</p>
+            <p className="text-xs text-muted-foreground mt-1">Sessions autorisées</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Users Data Table */}
+      {/* Users table */}
       <Card>
         <CardHeader>
           <CardTitle className="text-foreground font-semibold text-base">Membres du collège</CardTitle>
@@ -227,37 +389,195 @@ export function UsersPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nom</TableHead>
-                <TableHead>Rôle</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Téléphone</TableHead>
-                <TableHead>Date d'inscription</TableHead>
+                <TableHead>Rôle</TableHead>
+                <TableHead>Statut</TableHead>
+                <TableHead className="text-right">Contribution</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium text-foreground">{user.name}</TableCell>
-                  <TableCell>
-                    {user.role === "admin" ? (
-                      <Badge variant="positive">Administrateur</Badge>
-                    ) : (
-                      <Badge variant="neutral">Investisseur</Badge>
+              {users.map((user) => {
+                const isEditing = editingId === user.id
+                const isSuperAdmin = user.role === "super_admin"
+                const isMe = me?.id === user.id
+                const rowActionLoading = actionLoading[user.id] ?? false
+                const rowActionError = actionError[user.id] ?? ""
+
+                return (
+                  <React.Fragment key={user.id}>
+                    <TableRow>
+                      {/* Name */}
+                      <TableCell>
+                        {isEditing ? (
+                          <Input
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="h-8 text-sm"
+                          />
+                        ) : (
+                          <span className="font-medium text-foreground">
+                            {user.name}
+                            {isMe && (
+                              <span className="ml-1.5 text-3xs text-muted-foreground">(vous)</span>
+                            )}
+                          </span>
+                        )}
+                      </TableCell>
+
+                      {/* Email */}
+                      <TableCell>
+                        {isEditing ? (
+                          <Input
+                            type="email"
+                            value={editEmail}
+                            onChange={(e) => setEditEmail(e.target.value)}
+                            className="h-8 text-sm"
+                          />
+                        ) : (
+                          <span className="text-muted-foreground text-sm">{user.email}</span>
+                        )}
+                      </TableCell>
+
+                      {/* Role */}
+                      <TableCell>
+                        {isEditing && !isSuperAdmin ? (
+                          <Select
+                            value={editRole}
+                            onValueChange={(v) => setEditRole(v as "investor" | "admin")}
+                          >
+                            <SelectTrigger className="h-8 text-sm w-36">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="investor">Investisseur</SelectItem>
+                              <SelectItem value="admin">Administrateur</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Badge variant={roleBadgeVariant(user.role)}>
+                            {roleLabel(user.role)}
+                          </Badge>
+                        )}
+                      </TableCell>
+
+                      {/* Status */}
+                      <TableCell>
+                        <Badge variant={user.isActive ? "positive" : "negative"}>
+                          {user.isActive ? "Actif" : "Inactif"}
+                        </Badge>
+                      </TableCell>
+
+                      {/* Agreed contribution */}
+                      <TableCell className="text-right">
+                        {isEditing ? (
+                          <Input
+                            inputMode="numeric"
+                            value={editContribution}
+                            onChange={(e) => setEditContribution(e.target.value)}
+                            className="h-8 text-sm text-right w-28 ml-auto"
+                          />
+                        ) : (
+                          <span className="text-sm">{formatMoney(user.agreedContribution)}</span>
+                        )}
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isEditing ? (
+                            <>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-positive"
+                                onClick={() => handleEdit(user.id)}
+                                disabled={editSubmitting}
+                                title="Enregistrer"
+                              >
+                                <Check className="size-3.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                onClick={cancelEdit}
+                                title="Annuler"
+                              >
+                                <X className="size-3.5" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                onClick={() => startEdit(user)}
+                                title="Modifier"
+                              >
+                                <Pencil className="size-3.5" />
+                              </Button>
+
+                              {/* Deactivate / Reactivate */}
+                              <div
+                                title={
+                                  isSuperAdmin
+                                    ? "Les super administrateurs ne peuvent pas être désactivés depuis l'interface"
+                                    : user.isActive
+                                    ? "Désactiver cet utilisateur"
+                                    : "Réactiver cet utilisateur"
+                                }
+                              >
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className={`h-7 w-7 ${
+                                    isSuperAdmin
+                                      ? "opacity-30 cursor-not-allowed"
+                                      : user.isActive
+                                      ? "text-destructive hover:text-destructive"
+                                      : "text-positive hover:text-positive"
+                                  }`}
+                                  onClick={() => !isSuperAdmin && handleToggleActive(user)}
+                                  disabled={isSuperAdmin || rowActionLoading}
+                                  aria-disabled={isSuperAdmin}
+                                >
+                                  {user.isActive ? (
+                                    <Ban className="size-3.5" />
+                                  ) : (
+                                    <RefreshCw className="size-3.5" />
+                                  )}
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+
+                    {/* Inline error rows */}
+                    {isEditing && editError && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="pt-0 pb-2 px-4">
+                          <p className="text-xs text-destructive">{editError}</p>
+                        </TableCell>
+                      </TableRow>
                     )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{user.email ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{user.phone ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {new Date(user.joined_at).toLocaleDateString("fr-FR", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })}
-                  </TableCell>
-                </TableRow>
-              ))}
+                    {!isEditing && rowActionError && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="pt-0 pb-2 px-4">
+                          <p className="text-xs text-destructive">{rowActionError}</p>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
+                )
+              })}
+
               {users.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
                     <div className="flex flex-col items-center justify-center py-4">
                       <img
                         src="/empty-state.png"

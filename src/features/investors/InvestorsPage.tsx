@@ -12,18 +12,18 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/utils"
-import { useActiveUser } from "@/lib/active-user"
+import { useAuth } from "@/lib/auth"
 import { addInvestor, getInvestorStandings, type InvestorStanding } from "@/db/queries"
 
 export function InvestorsPage({ onChange }: { onChange?: () => void }) {
-  const { activeUser } = useActiveUser()
+  // Auth guaranteed by app shell — user is always non-null here.
+  const { user } = useAuth()
   const [standings, setStandings] = useState<InvestorStanding[]>([])
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
   const [contribution, setContribution] = useState("")
   const [role, setRole] = useState<"admin" | "investor">("investor")
-  const [pin, setPin] = useState("")
   const [error, setError] = useState<string | null>(null)
 
   async function refresh() {
@@ -41,22 +41,19 @@ export function InvestorsPage({ onChange }: { onChange?: () => void }) {
     const amount = Number(contribution.replace(/\D/g, ""))
     if (!name.trim()) return setError("Veuillez saisir un nom.")
     if (!amount || amount <= 0) return setError("Veuillez saisir le montant de la contribution convenue.")
-    if (pin && !/^\d{4}$/.test(pin)) return setError("Le code PIN de sécurité doit comporter exactement 4 chiffres.")
 
     await addInvestor({
       name: name.trim(),
       phone: phone.trim() || undefined,
       role,
-      pin: pin || undefined,
       agreedContribution: amount,
-      addedBy: activeUser?.id,
+      addedBy: user?.id,
     })
 
     setName("")
     setPhone("")
     setContribution("")
     setRole("investor")
-    setPin("")
     setShowForm(false)
     await refresh()
     onChange?.()
@@ -114,18 +111,6 @@ export function InvestorsPage({ onChange }: { onChange?: () => void }) {
                     <SelectItem value="admin">Administrateur (peut saisir les dépenses)</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pin">Code PIN de sécurité (4 chiffres)</Label>
-                <Input
-                  id="pin"
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                  placeholder="Ex. 1234 (optionnel)"
-                />
               </div>
               {error && <p className="sm:col-span-2 text-sm text-negative">{error}</p>}
               <div className="sm:col-span-2">
