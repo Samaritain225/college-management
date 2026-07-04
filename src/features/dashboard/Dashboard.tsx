@@ -47,21 +47,21 @@ export function Dashboard({
   const [chartData, setChartData] = useState<ChartDataPoint[]>([])
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
-  // Choose a funny greeting on mount/user change
+  // Professional greeting by time of day
   useEffect(() => {
     if (!user) return
     const firstName = user.name.split(" ")[0]
-    const greetings = [
-      `Ravi de vous revoir, ${firstName} !`,
-      `Heureux de vous revoir, ${firstName} !`,
-      `Bon retour parmi nous, ${firstName} !`,
-      `Alors, quoi de neuf aujourd'hui, ${firstName} ?`,
-      `Un œil sur les comptes, ${firstName} ?`,
-      `Toujours au taquet sur le budget, ${firstName} ?`,
-      `Bonjour, ${firstName} ! Prêt pour le bilan ?`
-    ]
-    const idx = Math.floor(Math.random() * greetings.length)
-    setRandomGreeting(greetings[idx])
+    const currentHour = new Date().getHours()
+
+    let greetingText = ""
+    if (currentHour >= 5 && currentHour < 12) {
+      greetingText = `Bon matin, ${firstName}. Prêt pour la journée scolaire ?`
+    } else if (currentHour >= 12 && currentHour < 18) {
+      greetingText = `Bon après-midi, ${firstName}. Suivi des activités en cours.`
+    } else {
+      greetingText = `Bonsoir, ${firstName}. Bilan de la journée disponible.`
+    }
+    setRandomGreeting(greetingText)
   }, [user])
 
   // Daytime greeting icon helper
