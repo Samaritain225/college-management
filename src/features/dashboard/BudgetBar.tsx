@@ -24,17 +24,25 @@ export function BudgetBar({ totalPool, spentByCategory }: BudgetBarProps) {
 
   return (
     <div className="w-full">
+      <style>{`
+        @keyframes slideIn {
+          from { width: 0; }
+        }
+        .animate-bar {
+          animation: slideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+      `}</style>
       <div className="flex h-8 w-full overflow-hidden rounded-lg border border-border bg-slate-50">
         {spentByCategory.map((cat) => (
           <div
             key={cat.name}
-            className={cn(cat.color, "h-full transition-all")}
+            className={cn(cat.color, "h-full transition-all animate-bar")}
             style={{ width: `${(cat.amount / totalPool) * 100}%` }}
             title={`${cat.name}: ${formatMoney(cat.amount)}`}
           />
         ))}
         <div
-          className="h-full bg-transparent"
+          className="h-full bg-transparent animate-bar"
           style={{ width: `${(remaining / totalPool) * 100}%` }}
         />
       </div>

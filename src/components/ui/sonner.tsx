@@ -16,20 +16,21 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
       icons={{
-        success: <CircleCheckIcon className="size-4" />,
-        info: <InfoIcon className="size-4" />,
-        warning: <TriangleAlertIcon className="size-4" />,
-        error: <OctagonXIcon className="size-4" />,
-        loading: <Loader2Icon className="size-4 animate-spin" />,
+        success: <CircleCheckIcon className="size-4 text-[var(--color-positive)]" />,
+        info: <InfoIcon className="size-4 text-[var(--color-indigo-600)]" />,
+        warning: <TriangleAlertIcon className="size-4 text-amber-500" />,
+        error: <OctagonXIcon className="size-4 text-[var(--color-negative)]" />,
+        loading: <Loader2Icon className="size-4 animate-spin text-[var(--color-ink-soft)]" />,
       }}
-      style={
-        {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
-        } as React.CSSProperties
-      }
+      toastOptions={{
+        classNames: {
+          toast: "group toast group-[.toaster]:bg-[var(--color-paper)] group-[.toaster]:text-[var(--color-ink)] group-[.toaster]:border-border group-[.toaster]:shadow-lg",
+          title: "font-display font-semibold text-sm text-[var(--color-ink)]",
+          description: "font-sans text-xs text-[var(--color-ink-soft)]",
+          success: "group-[.toast]:!text-[var(--color-positive)] group-[.toast]:!border-[var(--color-positive)]",
+          error: "group-[.toast]:!text-[var(--color-negative)] group-[.toast]:!border-[var(--color-negative)]",
+        }
+      }}
       {...props}
     />
   )

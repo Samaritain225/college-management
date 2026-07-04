@@ -15,7 +15,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { LogOut, ChevronDown } from "lucide-react"
+import { LogOut, Bell, User } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 function getInitials(name: string): string {
   return name
@@ -37,39 +38,56 @@ function getRoleLabel(role: string): string {
   }
 }
 
-export function ActiveUserBar() {
+export function ActiveUserBar({ onNavigateToTab }: { onNavigateToTab?: (tab: any) => void }) {
   const { user, logout } = useAuth()
 
   if (!user) return null
 
   return (
+    <div className="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="relative h-10 w-10 rounded-full text-muted-foreground hover:text-foreground"
+        title="Notifications"
+      >
+        <Bell className="size-5" />
+      </Button>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/80 transition-colors text-left outline-hidden">
-          <Avatar className="h-8 w-8 border border-border">
-            <AvatarFallback className="bg-primary/10 text-primary font-medium text-xs">
+        <button className="flex items-center rounded-full hover:bg-muted/80 p-0.5 transition-colors outline-hidden cursor-pointer">
+          <Avatar className="h-10 w-10 border border-border">
+            <AvatarFallback className="bg-primary/10 text-primary font-medium text-sm">
               {getInitials(user.name)}
             </AvatarFallback>
           </Avatar>
-          <div className="hidden sm:flex flex-col">
-            <span className="text-xs font-semibold text-foreground leading-none">
-              {user.name}
-            </span>
-            <span className="text-4xs text-muted-foreground mt-0.5 leading-none uppercase tracking-wider font-semibold">
-              {getRoleLabel(user.role)}
-            </span>
-          </div>
-          <ChevronDown className="size-3.5 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="font-normal">
-          <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none text-foreground">{user.name}</p>
-            <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+          <div className="flex flex-col space-y-1.5">
+            <div className="flex flex-col">
+              <p className="text-sm font-semibold leading-none text-foreground">{user.name}</p>
+              <p className="text-2xs text-muted-foreground/80 mt-1 uppercase tracking-wider font-semibold">
+                {getRoleLabel(user.role)}
+              </p>
+            </div>
+            <p className="text-xs leading-none text-muted-foreground/60 border-t border-border/40 pt-1.5">{user.email}</p>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {onNavigateToTab && (
+          <>
+            <DropdownMenuItem
+              onClick={() => onNavigateToTab("profile")}
+              className="cursor-pointer"
+            >
+              <User className="mr-2 h-4 w-4" />
+              <span>Mon compte</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem
           onClick={logout}
           className="text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
@@ -79,5 +97,6 @@ export function ActiveUserBar() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    </div>
   )
 }

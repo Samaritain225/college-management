@@ -11,21 +11,24 @@
 // Auth note: this schema holds NO credentials. Login is online-required
 // against the AdonisJS backend; only a session token is cached locally
 // (outside this synced database, in local secure storage), never
-// replicated to other devices. investors.email exists here for display
-// and reference only — password hashing and verification live entirely
-// on the backend.
+// replicated to other devices.
+//
+// Display names / emails of linked users are fetched from the backend's
+// /users REST endpoint and mapped in memory, avoiding duplicating auth
+// fields onto the local SQLite offline cache.
 
 export const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS investors (
     id TEXT PRIMARY KEY,
+    user_id TEXT,
     name TEXT NOT NULL,
     phone TEXT,
-    email TEXT,
-    role TEXT NOT NULL DEFAULT 'investor',
     agreed_contribution INTEGER NOT NULL,
     joined_at TEXT NOT NULL,
     created_by TEXT,
-    synced_at TEXT
+    synced_at TEXT,
+    created_at TEXT,
+    updated_at TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS contributions (
     id TEXT PRIMARY KEY,
@@ -34,7 +37,7 @@ export const SCHEMA_STATEMENTS = [
     paid_at TEXT NOT NULL,
     method TEXT,
     note TEXT,
-    recorded_by TEXT NOT NULL REFERENCES investors(id),
+    recorded_by TEXT NOT NULL,
     created_at TEXT NOT NULL,
     synced_at TEXT
   )`,
@@ -51,7 +54,7 @@ export const SCHEMA_STATEMENTS = [
     description TEXT NOT NULL,
     receipt_photo_path TEXT,
     spent_at TEXT NOT NULL,
-    recorded_by TEXT NOT NULL REFERENCES investors(id),
+    recorded_by TEXT NOT NULL,
     reverses_expense_id TEXT REFERENCES expenses(id),
     created_at TEXT NOT NULL,
     synced_at TEXT

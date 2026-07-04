@@ -10,6 +10,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet"
+import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/utils"
 import { useAuth } from "@/lib/auth"
 import {
@@ -20,9 +36,9 @@ import {
   type BudgetCategory,
   type Expense,
 } from "@/db/queries"
+import { Eye, FileText, Calendar, User, Receipt, XCircle } from "lucide-react"
 
-export function ExpensesPage({ onChange }: { onChange?: () => void }) {
-  // Auth is guaranteed by the app shell — user is always non-null here.
+export function ExpensesPage({ onChange, dbReady }: { onChange?: () => void; dbReady: boolean }) {
   const { user } = useAuth()
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [categories, setCategories] = useState<BudgetCategory[]>([])
@@ -32,25 +48,38 @@ export function ExpensesPage({ onChange }: { onChange?: () => void }) {
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  // Filters and search
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState("all")
+
+  // Details sheet
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   async function refresh() {
-    const [exp, cats] = await Promise.all([listExpenses(), listCategories()])
-    setExpenses(exp)
-    setCategories(cats)
-    if (!categoryId && cats[0]) setCategoryId(cats[0].id)
+    if (!dbReady) return
+    try {
+      const [exp, cats] = await Promise.all([listExpenses(), listCategories()])
+      setExpenses(exp)
+      setCategories(cats)
+      if (!categoryId && cats[0]) setCategoryId(cats[0].id)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
     refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [dbReady])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
 
-    // user is always present here — the app shell enforces auth before
-    // rendering this page. This check is just a TypeScript safety net.
     if (!user) return
 
     let activeCategoryId = categoryId === "new-category-placeholder" ? "" : categoryId
@@ -82,12 +111,52 @@ export function ExpensesPage({ onChange }: { onChange?: () => void }) {
 
   const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0)
 
+  // Filtered list
+  const filteredExpenses = expenses.filter((e) => {
+    const matchesSearch =
+      e.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      e.category_name.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesCategory =
+      selectedCategory === "all" || e.category_id === selectedCategory
+    return matchesSearch && matchesCategory
+  })
+
+  function handleConsult(expense: Expense) {
+    setSelectedExpense(expense)
+    setSheetOpen(true)
+  }
+
+  if (!dbReady || loading) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-8 animate-pulse space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <div className="h-7 w-48 bg-muted rounded-md" />
+            <div className="h-4 w-64 bg-muted rounded-md" />
+          </div>
+          <div className="h-9 w-32 bg-muted rounded-md" />
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between py-4">
+          <div className="h-9 w-64 bg-muted rounded-md" />
+          <div className="h-9 w-40 bg-muted rounded-md" />
+        </div>
+        <div className="rounded-md border border-border/40 bg-card p-4 space-y-4">
+          <div className="h-6 bg-muted rounded-sm w-full" />
+          <div className="h-6 bg-muted rounded-sm w-full" />
+          <div className="h-6 bg-muted rounded-sm w-full" />
+          <div className="h-6 bg-muted rounded-sm w-full" />
+          <div className="h-6 bg-muted rounded-sm w-full" />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
       <header className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-semibold">Dépenses</h1>
-          <p className="text-sm text-ink-soft">
+          <h1 className="font-display text-2xl font-semibold text-foreground">Dépenses</h1>
+          <p className="text-sm text-muted-foreground">
             {expenses.length} {expenses.length > 1 ? "saisies" : "saisie"} · {formatMoney(totalSpent)} au total
           </p>
         </div>
@@ -99,14 +168,14 @@ export function ExpensesPage({ onChange }: { onChange?: () => void }) {
       {showForm && user && (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Nouvelle dépense · enregistrée par {user.name}</CardTitle>
+            <CardTitle className="text-foreground font-semibold text-base">Nouvelle dépense · enregistrée par {user.name}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="category">Catégorie</Label>
                 <Select value={categoryId} onValueChange={(val) => setCategoryId(val)}>
-                  <SelectTrigger id="category" className="h-10 w-full bg-white border-ink/15 text-sm">
+                  <SelectTrigger id="category" className="h-10 w-full bg-white border-border text-sm">
                     <SelectValue placeholder="Choisir une catégorie…" />
                   </SelectTrigger>
                   <SelectContent>
@@ -147,7 +216,7 @@ export function ExpensesPage({ onChange }: { onChange?: () => void }) {
                   placeholder="20 bancs de classe en bois"
                 />
               </div>
-              {error && <p className="sm:col-span-2 text-sm text-negative">{error}</p>}
+              {error && <p className="sm:col-span-2 text-sm text-negative font-medium">{error}</p>}
               <div className="sm:col-span-2">
                 <Button type="submit">Enregistrer la dépense</Button>
               </div>
@@ -156,49 +225,159 @@ export function ExpensesPage({ onChange }: { onChange?: () => void }) {
         </Card>
       )}
 
-      <Card>
-        <CardContent className="pt-5">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-ink/10 text-left text-ink-soft">
-                <th className="pb-2 font-display font-medium">Date</th>
-                <th className="pb-2 font-display font-medium">Catégorie</th>
-                <th className="pb-2 font-display font-medium">Description</th>
-                <th className="pb-2 font-display font-medium">Enregistré par</th>
-                <th className="pb-2 font-display font-medium text-right">Montant</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.map((e) => (
-                <tr key={e.id} className="border-b border-ink/5 last:border-0">
-                  <td className="py-2.5 text-ink-soft">
-                    {new Date(e.spent_at).toLocaleDateString()}
-                  </td>
-                  <td className="py-2.5">{e.category_name}</td>
-                  <td className="py-2.5">{e.description}</td>
-                  <td className="py-2.5 text-ink-soft">{e.recorded_by_name}</td>
-                  <td className="py-2.5 text-right">{formatMoney(e.amount)}</td>
-                </tr>
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between py-4">
+        <Input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filtrer par motif ou catégorie..."
+          className="max-w-sm h-9"
+        />
+        <div className="flex items-center gap-2">
+          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <SelectTrigger className="h-9 w-48 bg-white border-border text-xs">
+              <SelectValue placeholder="Toutes les catégories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes les catégories</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
               ))}
-              {expenses.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="py-12 text-center text-muted-foreground">
-                    <div className="flex flex-col items-center justify-center">
-                      <img
-                        src="/empty-state.png"
-                        alt="Aucune dépense"
-                        className="h-32 w-32 object-contain mb-4 rounded-xl opacity-80"
-                      />
-                      <p className="text-sm font-medium text-foreground">Aucune dépense enregistrée pour le moment.</p>
-                      <p className="text-xs text-muted-foreground mt-1">Les dépenses apparaîtront ici dès qu'un administrateur les aura saisies.</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-border/40 bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Catégorie</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead>Enregistré par</TableHead>
+              <TableHead className="text-right">Montant</TableHead>
+              <TableHead className="text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredExpenses.map((e) => (
+              <TableRow key={e.id}>
+                <TableCell className="text-muted-foreground text-xs">
+                  {new Date(e.spent_at).toLocaleDateString()}
+                </TableCell>
+                <TableCell>
+                  <Badge variant="neutral">{e.category_name}</Badge>
+                </TableCell>
+                <TableCell className="font-medium text-foreground">{e.description}</TableCell>
+                <TableCell className="text-muted-foreground">{e.recorded_by_name || "Admin/Staff"}</TableCell>
+                <TableCell className="text-right font-bold text-foreground">{formatMoney(e.amount)}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 hover:text-primary"
+                    onClick={() => handleConsult(e)}
+                    title="Consulter les détails"
+                  >
+                    <Eye className="size-4" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+
+            {filteredExpenses.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center h-32 text-muted-foreground">
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-sm font-medium text-foreground">Aucune dépense trouvée.</p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Details Slide-over Sheet */}
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent className="w-full sm:max-w-md p-6">
+          {selectedExpense && (
+            <div className="space-y-6 h-full flex flex-col">
+              <SheetHeader className="space-y-1">
+                <SheetTitle className="text-lg font-bold flex items-center gap-2">
+                  <Receipt className="size-5 text-primary" />
+                  Détail de la Dépense
+                </SheetTitle>
+                <SheetDescription className="text-xs">
+                  Fiche de contrôle comptable immuable
+                </SheetDescription>
+              </SheetHeader>
+
+              {/* Amount Display */}
+              <div className="bg-primary/5 border border-primary/10 rounded-xl p-6 text-center">
+                <p className="text-2xs text-muted-foreground uppercase tracking-wider font-semibold">Montant Décaissé</p>
+                <p className="text-3xl font-extrabold text-foreground mt-1.5">{formatMoney(selectedExpense.amount)}</p>
+              </div>
+
+              {/* Detailed Grid */}
+              <div className="space-y-4 flex-1">
+                <div className="grid grid-cols-3 items-start gap-4 border-b border-border/40 pb-3">
+                  <span className="text-xs font-semibold text-muted-foreground/80 flex items-center gap-1.5">
+                    <FileText className="size-3.5" /> Catégorie
+                  </span>
+                  <span className="col-span-2 text-sm font-medium text-foreground">
+                    {selectedExpense.category_name}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 items-start gap-4 border-b border-border/40 pb-3">
+                  <span className="text-xs font-semibold text-muted-foreground/80 flex items-center gap-1.5">
+                    <Calendar className="size-3.5" /> Date d'effet
+                  </span>
+                  <span className="col-span-2 text-sm text-foreground">
+                    {new Date(selectedExpense.spent_at).toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 items-start gap-4 border-b border-border/40 pb-3">
+                  <span className="text-xs font-semibold text-muted-foreground/80 flex items-center gap-1.5">
+                    <User className="size-3.5" /> Saisi par
+                  </span>
+                  <span className="col-span-2 text-sm text-foreground">
+                    {selectedExpense.recorded_by_name || "Agent comptable / Trésorerie"}
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 pt-2">
+                  <span className="text-xs font-semibold text-muted-foreground/80">Motif explicatif</span>
+                  <div className="bg-muted/40 border border-border/40 rounded-lg p-3 text-sm text-foreground leading-relaxed">
+                    {selectedExpense.description}
+                  </div>
+                </div>
+
+                {/* Status Badges */}
+                <div className="pt-2 flex flex-wrap gap-2">
+                  {selectedExpense.reverses_expense_id ? (
+                    <Badge variant="negative" className="flex items-center gap-1">
+                      <XCircle className="size-3" /> Ajusté / Annulé
+                    </Badge>
+                  ) : (
+                    <Badge variant="positive">Transaction Validée</Badge>
+                  )}
+                </div>
+              </div>
+
+              {/* Close Action */}
+              <div className="pt-4 border-t border-border mt-auto">
+                <Button className="w-full" variant="outline" onClick={() => setSheetOpen(false)}>
+                  Fermer
+                </Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

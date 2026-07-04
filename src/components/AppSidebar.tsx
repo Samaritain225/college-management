@@ -1,5 +1,5 @@
 import * as React from "react"
-import { LayoutDashboard, Users, Receipt, Settings, Shield } from "lucide-react"
+import { LayoutDashboard, Users, Receipt, Settings, GraduationCap, BookOpen, School } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -9,15 +9,14 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { useSettings } from "@/lib/settings"
-import type { UserRole } from "@/lib/auth"
 
-type Tab = "dashboard" | "investors" | "expenses" | "users" | "settings"
+type Tab = "dashboard" | "investors" | "expenses" | "users" | "settings" | "profile" | "teachers" | "students" | "classes"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   currentTab: Tab
   onTabChange: (tab: Tab) => void
   /** The authenticated user's role — controls which nav items are visible. */
-  userRole: UserRole | undefined
+  userRole: string | undefined
 }
 
 export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppSidebarProps) {
@@ -27,10 +26,14 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
 
   const mainItems = [
     { id: "dashboard" as Tab, title: "Tableau de bord", icon: LayoutDashboard },
-    { id: "investors" as Tab, title: "Investisseurs", icon: Users },
+    { id: "teachers" as Tab, title: "Enseignants", icon: GraduationCap },
+    { id: "students" as Tab, title: "Élèves", icon: BookOpen },
+    { id: "classes" as Tab, title: "Classes", icon: School },
     { id: "expenses" as Tab, title: "Dépenses", icon: Receipt },
     ...(canManageUsers
-      ? [{ id: "users" as Tab, title: "Utilisateurs", icon: Shield }]
+      ? [
+          { id: "investors" as Tab, title: "Investisseurs", icon: Users },
+        ]
       : []),
   ]
 

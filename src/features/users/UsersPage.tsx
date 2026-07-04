@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { toast } from "sonner"
 import {
   Select,
   SelectContent,
@@ -27,8 +29,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { UserPlus, Pencil, Ban, RefreshCw, X, Check } from "lucide-react"
-import { formatMoney } from "@/lib/utils"
+import {
+  UserPlus,
+  Ban,
+  RefreshCw,
+  ArrowLeft,
+  ShieldAlert,
+  User,
+  Mail,
+  Phone,
+  Calendar,
+  Lock,
+  Eye,
+} from "lucide-react"
 
 // ---------------------------------------------------------------------------
 // Types — camelCase to match backend response exactly
@@ -38,75 +51,109 @@ interface ApiUser {
   id: string
   name: string
   email: string
-  role: "investor" | "admin" | "super_admin"
+  phone: string | null
+  roleId: string
   isActive: boolean
-  agreedContribution: number
-  joinedAt: string
+  createdAt: string
+  updatedAt: string | null
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function roleBadgeVariant(role: ApiUser["role"]): "accent" | "neutral" {
-  return role === "super_admin" || role === "admin" ? "accent" : "neutral"
-}
-
-function roleLabel(role: ApiUser["role"]): string {
-  switch (role) {
-    case "super_admin": return "Super Admin"
-    case "admin": return "Administrateur"
-    default: return "Investisseur"
-  }
+interface ApiRole {
+  id: string
+  label: string
+  description: string
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function UsersPage() {
+interface UsersPageProps {
+  profileModeForceUserId?: string
+  onBreadcrumbChange?: (items: string[]) => void
+  backTrigger?: number
+  initialSelectedUserId?: string | null
+  onClearInitialSelectedUserId?: () => void
+}
+
+export function UsersPage({
+  profileModeForceUserId,
+  onBreadcrumbChange,
+  backTrigger,
+  initialSelectedUserId,
+  onClearInitialSelectedUserId,
+}: UsersPageProps) {
   const { user: me } = useAuth()
+  const isAdmin = me?.role === "admin" || me?.role === "super_admin"
+
   const [users, setUsers] = useState<ApiUser[]>([])
+  const [roles, setRoles] = useState<ApiRole[]>([])
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
+
+  // Navigation sub-views
+  // selectedUserId handles the detail card "page" view
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(profileModeForceUserId || null)
+
+  // Filters and search
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedRole, setSelectedRole] = useState("all")
+  const [selectedStatus, setSelectedStatus] = useState("all")
 
   // Create form
   const [showForm, setShowForm] = useState(false)
   const [createName, setCreateName] = useState("")
   const [createEmail, setCreateEmail] = useState("")
+  const [createPhone, setCreatePhone] = useState("")
   const [createPassword, setCreatePassword] = useState("")
-  const [createRole, setCreateRole] = useState<"investor" | "admin">("investor")
-  const [createContribution, setCreateContribution] = useState("")
-  const [createError, setCreateError] = useState<string | null>(null)
+  const [createRole, setCreateRole] = useState("")
   const [createSubmitting, setCreateSubmitting] = useState(false)
 
-  // Inline edit state
-  const [editingId, setEditingId] = useState<string | null>(null)
+  // Detail/Edit view state
+  const [detailUser, setDetailUser] = useState<ApiUser | null>(null)
   const [editName, setEditName] = useState("")
   const [editEmail, setEditEmail] = useState("")
-  const [editRole, setEditRole] = useState<"investor" | "admin">("investor")
-  const [editContribution, setEditContribution] = useState("")
-  const [editError, setEditError] = useState<string | null>(null)
+  const [editPhone, setEditPhone] = useState("")
+  const [editRole, setEditRole] = useState("")
+  const [editPassword, setEditPassword] = useState("") // Optional on edit
   const [editSubmitting, setEditSubmitting] = useState(false)
-
-  // Per-row action error (deactivate/reactivate)
-  const [actionError, setActionError] = useState<Record<string, string>>({})
-  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  const [actionLoading, setActionLoading] = useState(false)
 
   // ---------------------------------------------------------------------------
-  // Load users
+  // Load users & roles
   // ---------------------------------------------------------------------------
 
-  async function loadUsers() {
+  async function loadData() {
     setListError(null)
     try {
-      const data = await api.get<{ data: { users: ApiUser[] } }>("/users")
-      setUsers(data.data.users)
+      const [usersRes, rolesRes] = await Promise.all([
+        api.get<{ data: { users: ApiUser[] } }>("/users"),
+        api.get<{ data: { roles: ApiRole[] } }>("/roles"),
+      ])
+      setUsers(usersRes.data.users)
+      setRoles(rolesRes.data.roles)
+      if (rolesRes.data.roles.length > 0) {
+        const defaultRole = rolesRes.data.roles.find((r) => r.id === "investor") || rolesRes.data.roles[0]
+        setCreateRole(defaultRole.id)
+      }
+
+      // If viewing a details view, load/refresh the active profile user
+      const targetId = selectedUserId || profileModeForceUserId
+      if (targetId) {
+        const matched = usersRes.data.users.find((u) => u.id === targetId)
+        if (matched) {
+          setDetailUser(matched)
+          setEditName(matched.name)
+          setEditEmail(matched.email)
+          setEditPhone(matched.phone || "")
+          setEditRole(matched.roleId)
+        }
+      }
     } catch (err) {
       if (isApiError(err)) {
         setListError(err.message)
       } else {
-        setListError("Impossible de charger les utilisateurs.")
+        setListError("Impossible de charger les données.")
       }
     } finally {
       setLoading(false)
@@ -114,8 +161,42 @@ export function UsersPage() {
   }
 
   useEffect(() => {
-    loadUsers()
-  }, [])
+    loadData()
+  }, [selectedUserId, profileModeForceUserId])
+
+  // Listen to global back-trigger to clear details view
+  useEffect(() => {
+    if (backTrigger && backTrigger > 0) {
+      setSelectedUserId(null)
+    }
+  }, [backTrigger])
+
+  // Listen to cross-tab routing inputs
+  useEffect(() => {
+    if (initialSelectedUserId) {
+      setSelectedUserId(initialSelectedUserId)
+      onClearInitialSelectedUserId?.()
+    }
+  }, [initialSelectedUserId, onClearInitialSelectedUserId])
+
+  // Sync breadcrumbs with details view state
+  useEffect(() => {
+    if (selectedUserId && detailUser) {
+      onBreadcrumbChange?.(["Détails : " + detailUser.name])
+    } else {
+      onBreadcrumbChange?.([])
+    }
+  }, [selectedUserId, detailUser, onBreadcrumbChange])
+
+  // Helpers to fetch role attributes
+  function getRoleLabel(roleId: string): string {
+    const r = roles.find((role) => role.id === roleId)
+    return r ? r.label : roleId
+  }
+
+  function roleBadgeVariant(roleId: string): "accent" | "neutral" {
+    return roleId === "super_admin" || roleId === "admin" ? "accent" : "neutral"
+  }
 
   // ---------------------------------------------------------------------------
   // Create user
@@ -123,36 +204,33 @@ export function UsersPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
-    setCreateError(null)
 
-    if (!createName.trim()) return setCreateError("Le nom est requis.")
-    if (!createEmail.trim()) return setCreateError("L'email est requis.")
-    if (!createPassword) return setCreateError("Le mot de passe est requis.")
-
-    const contribution = Number(createContribution.replace(/\D/g, ""))
+    if (!createName.trim()) return toast.error("Le nom est requis.")
+    if (!createEmail.trim()) return toast.error("L'email est requis.")
+    if (!createPassword) return toast.error("Le mot de passe est requis.")
+    if (!createRole) return toast.error("Le rôle est requis.")
 
     setCreateSubmitting(true)
     try {
       await api.post("/users", {
         name: createName.trim(),
         email: createEmail.trim(),
+        phone: createPhone.trim() || null,
         password: createPassword,
-        role: createRole,
-        agreedContribution: contribution,
+        roleId: createRole,
       })
-      // Reset form
+      toast.success("Utilisateur créé avec succès.")
       setCreateName("")
       setCreateEmail("")
+      setCreatePhone("")
       setCreatePassword("")
-      setCreateRole("investor")
-      setCreateContribution("")
       setShowForm(false)
-      await loadUsers()
+      await loadData()
     } catch (err) {
       if (isApiError(err)) {
-        setCreateError(err.message)
+        toast.error(err.message)
       } else {
-        setCreateError("Erreur lors de la création de l'utilisateur.")
+        toast.error("Erreur lors de la création de l'utilisateur.")
       }
     } finally {
       setCreateSubmitting(false)
@@ -160,43 +238,38 @@ export function UsersPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Inline edit
+  // Edit user
   // ---------------------------------------------------------------------------
 
-  function startEdit(user: ApiUser) {
-    setEditingId(user.id)
-    setEditName(user.name)
-    setEditEmail(user.email)
-    setEditRole(user.role === "super_admin" ? "admin" : user.role)
-    setEditContribution(String(user.agreedContribution))
-    setEditError(null)
-  }
+  async function handleEditSave(e: React.FormEvent) {
+    e.preventDefault()
+    if (!detailUser) return
 
-  function cancelEdit() {
-    setEditingId(null)
-    setEditError(null)
-  }
-
-  async function handleEdit(userId: string) {
-    setEditError(null)
-    if (!editName.trim()) return setEditError("Le nom est requis.")
-    if (!editEmail.trim()) return setEditError("L'email est requis.")
+    if (!editName.trim()) return toast.error("Le nom est requis.")
+    if (!editEmail.trim()) return toast.error("L'email est requis.")
+    if (!editRole) return toast.error("Le rôle est requis.")
 
     setEditSubmitting(true)
     try {
-      await api.patch(`/users/${userId}`, {
+      const payload: Record<string, any> = {
         name: editName.trim(),
         email: editEmail.trim(),
-        role: editRole,
-        agreedContribution: Number(editContribution.replace(/\D/g, "")),
-      })
-      setEditingId(null)
-      await loadUsers()
+        phone: editPhone.trim() || null,
+        roleId: editRole,
+      }
+      if (editPassword.trim()) {
+        payload.password = editPassword
+      }
+
+      await api.patch(`/users/${detailUser.id}`, payload)
+      toast.success("Fiche utilisateur mise à jour avec succès.")
+      setEditPassword("")
+      await loadData()
     } catch (err) {
       if (isApiError(err)) {
-        setEditError(err.message)
+        toast.error(err.message)
       } else {
-        setEditError("Erreur lors de la mise à jour.")
+        toast.error("Erreur lors de la mise à jour.")
       }
     } finally {
       setEditSubmitting(false)
@@ -204,46 +277,261 @@ export function UsersPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Deactivate / Reactivate
+  // Toggle status
   // ---------------------------------------------------------------------------
 
-  async function handleToggleActive(user: ApiUser) {
-    setActionError((prev) => ({ ...prev, [user.id]: "" }))
-    setActionLoading((prev) => ({ ...prev, [user.id]: true }))
+  async function handleToggleActive() {
+    if (!detailUser) return
+    setActionLoading(true)
 
     try {
-      const endpoint = user.isActive
-        ? `/users/${user.id}/deactivate`
-        : `/users/${user.id}/reactivate`
+      const endpoint = detailUser.isActive
+        ? `/users/${detailUser.id}/deactivate`
+        : `/users/${detailUser.id}/reactivate`
       await api.patch(endpoint)
-      await loadUsers()
+      toast.success(
+        detailUser.isActive
+          ? "Utilisateur désactivé avec succès."
+          : "Utilisateur réactivé avec succès."
+      )
+      await loadData()
     } catch (err) {
-      const msg =
-        isApiError(err)
-          ? err.message
-          : "Une erreur est survenue."
-      setActionError((prev) => ({ ...prev, [user.id]: msg }))
+      const msg = isApiError(err) ? err.message : "Une erreur est survenue."
+      toast.error(msg)
     } finally {
-      setActionLoading((prev) => ({ ...prev, [user.id]: false }))
+      setActionLoading(false)
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Stats
-  // ---------------------------------------------------------------------------
+  // Filter logic
+  const filteredUsers = users.filter((u) => {
+    const matchesSearch =
+      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.email.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesRole = selectedRole === "all" || u.roleId === selectedRole
+    const matchesStatus =
+      selectedStatus === "all" ||
+      (selectedStatus === "active" && u.isActive) ||
+      (selectedStatus === "inactive" && !u.isActive)
+    return matchesSearch && matchesRole && matchesStatus
+  })
 
-  const totalUsers = users.length
-  const totalAdmins = users.filter((u) => u.role === "admin" || u.role === "super_admin").length
   const totalActive = users.filter((u) => u.isActive).length
 
   // ---------------------------------------------------------------------------
-  // Render
+  // Render sub-page: User Details View
+  // ---------------------------------------------------------------------------
+
+  if (selectedUserId && detailUser) {
+    const isSuperAdmin = detailUser.roleId === "super_admin"
+    const isMe = me?.id === detailUser.id
+    const showBack = !profileModeForceUserId // Hide back button if forced to view own profile
+
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-8">
+        {showBack && (
+          <Button
+            variant="ghost"
+            onClick={() => setSelectedUserId(null)}
+            className="mb-6 flex items-center gap-2 hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
+            Retour à la liste
+          </Button>
+        )}
+
+        <div className="space-y-6">
+          {/* Header Card */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-card p-6 border border-border rounded-xl shadow-xs">
+            <div className="flex items-center gap-4">
+              <div className="flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-lg">
+                {detailUser.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-foreground">{detailUser.name}</h2>
+                  {isMe && <Badge variant="neutral">Vous</Badge>}
+                </div>
+                <p className="text-xs text-muted-foreground">{detailUser.email}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={roleBadgeVariant(detailUser.roleId)}>
+                {getRoleLabel(detailUser.roleId)}
+              </Badge>
+              <Badge variant={detailUser.isActive ? "positive" : "negative"}>
+                {detailUser.isActive ? "Actif" : "Inactif"}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Form details */}
+          <Card>
+            <CardHeader className="border-b border-border/40 pb-4">
+              <CardTitle className="text-foreground font-semibold text-base">
+                {isAdmin ? "Éditer le profil" : "Détails du compte"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <form onSubmit={handleEditSave} className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {/* Nom complet */}
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="ed-name" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+                      <User className="size-3.5" /> Nom complet
+                    </Label>
+                    <Input
+                      id="ed-name"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      disabled={!isAdmin}
+                      required
+                    />
+                  </div>
+
+                  {/* Email */}
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="ed-email" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+                      <Mail className="size-3.5" /> Adresse email
+                    </Label>
+                    <Input
+                      id="ed-email"
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      disabled={!isAdmin}
+                      required
+                    />
+                  </div>
+
+                  {/* Phone */}
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="ed-phone" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+                      <Phone className="size-3.5" /> Téléphone
+                    </Label>
+                    <Input
+                      id="ed-phone"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="—"
+                      disabled={!isAdmin}
+                    />
+                  </div>
+
+                  {/* Role selection */}
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="ed-role" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+                      <ShieldAlert className="size-3.5" /> Rôle affecté
+                    </Label>
+                    {isAdmin && !isSuperAdmin ? (
+                      <Select value={editRole} onValueChange={setEditRole}>
+                        <SelectTrigger id="ed-role" className="bg-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {roles.map((r) => (
+                            <SelectItem key={r.id} value={r.id}>
+                              {r.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="ed-role"
+                        value={getRoleLabel(detailUser.roleId)}
+                        disabled
+                      />
+                    )}
+                  </div>
+
+                  {/* Password change (Admin Only) */}
+                  {isAdmin && (
+                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                      <Label htmlFor="ed-pass" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+                        <Lock className="size-3.5" /> Réinitialiser le mot de passe (facultatif)
+                      </Label>
+                      <Input
+                        id="ed-pass"
+                        type="password"
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        placeholder="Laisser vide pour ne pas modifier"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Metadata creation date */}
+                <div className="pt-4 border-t border-border/40 text-xs text-muted-foreground/80 flex items-center gap-1.5">
+                  <Calendar className="size-3.5" /> Compte créé le {new Date(detailUser.createdAt).toLocaleString()}
+                </div>
+
+                {/* Action buttons */}
+                {isAdmin && (
+                  <div className="pt-4 border-t border-border flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+                    {/* Deactivate Button */}
+                    <div>
+                      {!isSuperAdmin && (
+                        <Button
+                          type="button"
+                          variant={detailUser.isActive ? "destructive" : "outline"}
+                          disabled={actionLoading}
+                          onClick={handleToggleActive}
+                          className="flex items-center gap-2"
+                        >
+                          {detailUser.isActive ? (
+                            <>
+                              <Ban className="size-4" /> Désactiver le compte
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="size-4" /> Réactiver le compte
+                            </>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Save Changes */}
+                    <Button type="submit" disabled={editSubmitting}>
+                      {editSubmitting ? "Enregistrement…" : "Enregistrer les modifications"}
+                    </Button>
+                  </div>
+                )}
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render main page: Users list and search
   // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-8 text-muted-foreground">
-        Chargement des utilisateurs…
+      <div className="mx-auto max-w-5xl px-6 py-8 animate-pulse space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <div className="h-7 w-48 bg-muted rounded-md" />
+            <div className="h-4 w-64 bg-muted rounded-md" />
+          </div>
+          <div className="h-9 w-32 bg-muted rounded-md" />
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between py-4">
+          <div className="h-9 w-64 bg-muted rounded-md" />
+          <div className="h-9 w-40 bg-muted rounded-md" />
+        </div>
+        <div className="rounded-md border border-border/40 bg-card p-4 space-y-4">
+          <div className="h-6 bg-muted rounded-sm w-full" />
+          <div className="h-6 bg-muted rounded-sm w-full" />
+          <div className="h-6 bg-muted rounded-sm w-full" />
+          <div className="h-6 bg-muted rounded-sm w-full" />
+          <div className="h-6 bg-muted rounded-sm w-full" />
+        </div>
       </div>
     )
   }
@@ -252,7 +540,7 @@ export function UsersPage() {
     return (
       <div className="mx-auto max-w-5xl px-6 py-8">
         <p className="text-sm text-destructive">{listError}</p>
-        <Button variant="outline" className="mt-4" onClick={loadUsers}>Réessayer</Button>
+        <Button variant="outline" className="mt-4" onClick={loadData}>Réessayer</Button>
       </div>
     )
   }
@@ -265,7 +553,7 @@ export function UsersPage() {
             Utilisateurs &amp; Permissions
           </h1>
           <p className="text-sm text-muted-foreground">
-            {totalUsers} {totalUsers > 1 ? "membres" : "membre"} enregistrés · {totalActive} actifs
+            {users.length} {users.length > 1 ? "membres" : "membre"} enregistrés · {totalActive} actifs
           </p>
         </div>
         <Button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-2">
@@ -304,6 +592,15 @@ export function UsersPage() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cu-phone">Téléphone (facultatif)</Label>
+                <Input
+                  id="cu-phone"
+                  value={createPhone}
+                  onChange={(e) => setCreatePhone(e.target.value)}
+                  placeholder="+225 07 00 00 00 00"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="cu-password">Mot de passe *</Label>
                 <Input
                   id="cu-password"
@@ -315,30 +612,21 @@ export function UsersPage() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cu-role">Rôle</Label>
-                {/* super_admin can only be created via seeder — intentionally omitted */}
-                <Select value={createRole} onValueChange={(val) => setCreateRole(val as "investor" | "admin")}>
+                <Label htmlFor="cu-role">Rôle *</Label>
+                <Select value={createRole} onValueChange={setCreateRole}>
                   <SelectTrigger id="cu-role" className="h-10 w-full">
-                    <SelectValue />
+                    <SelectValue placeholder="Choisir un rôle" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="investor">Investisseur (lecture seule)</SelectItem>
-                    <SelectItem value="admin">Administrateur (lecture / écriture)</SelectItem>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cu-contribution">Contribution convenue (XOF)</Label>
-                <Input
-                  id="cu-contribution"
-                  inputMode="numeric"
-                  value={createContribution}
-                  onChange={(e) => setCreateContribution(e.target.value)}
-                  placeholder="2 500 000"
-                />
-              </div>
               <div className="flex flex-col gap-1.5 justify-end">
-                {createError && <p className="text-sm text-destructive">{createError}</p>}
                 <Button type="submit" disabled={createSubmitting} className="w-full">
                   {createSubmitting ? "Enregistrement…" : "Enregistrer l'utilisateur"}
                 </Button>
@@ -348,252 +636,126 @@ export function UsersPage() {
         </Card>
       )}
 
-      {/* Quick stats */}
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Membres totaux</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="font-sans text-2xl font-bold text-foreground">{totalUsers}</p>
-            <p className="text-xs text-muted-foreground mt-1">Personnes enregistrées</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Administrateurs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="font-sans text-2xl font-bold text-foreground">{totalAdmins}</p>
-            <p className="text-xs text-muted-foreground mt-1">Droits d'écriture</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Actifs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="font-sans text-2xl font-bold text-foreground">{totalActive}</p>
-            <p className="text-xs text-muted-foreground mt-1">Sessions autorisées</p>
-          </CardContent>
-        </Card>
+      {/* Advanced search and filter panel */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between py-4">
+        <Input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filtrer les utilisateurs par nom, email..."
+          className="max-w-sm h-9"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={selectedRole} onValueChange={setSelectedRole}>
+            <SelectTrigger className="h-9 w-40 bg-white border-border text-xs">
+              <SelectValue placeholder="Rôle" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les rôles</SelectItem>
+              {roles.map((role) => (
+                <SelectItem key={role.id} value={role.id}>
+                  {role.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+            <SelectTrigger className="h-9 w-40 bg-white border-border text-xs">
+              <SelectValue placeholder="Statut" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les statuts</SelectItem>
+              <SelectItem value="active">Actifs uniquement</SelectItem>
+              <SelectItem value="inactive">Inactifs uniquement</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Users table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-foreground font-semibold text-base">Membres du collège</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nom</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Rôle</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead className="text-right">Contribution</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((user) => {
-                const isEditing = editingId === user.id
-                const isSuperAdmin = user.role === "super_admin"
-                const isMe = me?.id === user.id
-                const rowActionLoading = actionLoading[user.id] ?? false
-                const rowActionError = actionError[user.id] ?? ""
-
-                return (
-                  <React.Fragment key={user.id}>
-                    <TableRow>
-                      {/* Name */}
-                      <TableCell>
-                        {isEditing ? (
-                          <Input
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            className="h-8 text-sm"
-                          />
-                        ) : (
-                          <span className="font-medium text-foreground">
-                            {user.name}
-                            {isMe && (
-                              <span className="ml-1.5 text-3xs text-muted-foreground">(vous)</span>
-                            )}
-                          </span>
+      <div className="rounded-md border border-border/40 bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nom</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Téléphone</TableHead>
+              <TableHead>Rôle</TableHead>
+              <TableHead>Statut</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredUsers.map((user) => {
+              const isMe = me?.id === user.id
+              return (
+                <TableRow key={user.id}>
+                  {/* Name */}
+                  <TableCell className="font-semibold text-foreground">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-10 w-10 border border-border/40">
+                        <AvatarFallback className="bg-primary/5 text-primary text-xs font-semibold">
+                          {user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex flex-col">
+                        <span>{user.name}</span>
+                        {isMe && (
+                          <span className="text-3xs text-muted-foreground font-normal">(vous)</span>
                         )}
-                      </TableCell>
-
-                      {/* Email */}
-                      <TableCell>
-                        {isEditing ? (
-                          <Input
-                            type="email"
-                            value={editEmail}
-                            onChange={(e) => setEditEmail(e.target.value)}
-                            className="h-8 text-sm"
-                          />
-                        ) : (
-                          <span className="text-muted-foreground text-sm">{user.email}</span>
-                        )}
-                      </TableCell>
-
-                      {/* Role */}
-                      <TableCell>
-                        {isEditing && !isSuperAdmin ? (
-                          <Select
-                            value={editRole}
-                            onValueChange={(v) => setEditRole(v as "investor" | "admin")}
-                          >
-                            <SelectTrigger className="h-8 text-sm w-36">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="investor">Investisseur</SelectItem>
-                              <SelectItem value="admin">Administrateur</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Badge variant={roleBadgeVariant(user.role)}>
-                            {roleLabel(user.role)}
-                          </Badge>
-                        )}
-                      </TableCell>
-
-                      {/* Status */}
-                      <TableCell>
-                        <Badge variant={user.isActive ? "positive" : "negative"}>
-                          {user.isActive ? "Actif" : "Inactif"}
-                        </Badge>
-                      </TableCell>
-
-                      {/* Agreed contribution */}
-                      <TableCell className="text-right">
-                        {isEditing ? (
-                          <Input
-                            inputMode="numeric"
-                            value={editContribution}
-                            onChange={(e) => setEditContribution(e.target.value)}
-                            className="h-8 text-sm text-right w-28 ml-auto"
-                          />
-                        ) : (
-                          <span className="text-sm">{formatMoney(user.agreedContribution)}</span>
-                        )}
-                      </TableCell>
-
-                      {/* Actions */}
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {isEditing ? (
-                            <>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-positive"
-                                onClick={() => handleEdit(user.id)}
-                                disabled={editSubmitting}
-                                title="Enregistrer"
-                              >
-                                <Check className="size-3.5" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                onClick={cancelEdit}
-                                title="Annuler"
-                              >
-                                <X className="size-3.5" />
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                onClick={() => startEdit(user)}
-                                title="Modifier"
-                              >
-                                <Pencil className="size-3.5" />
-                              </Button>
-
-                              {/* Deactivate / Reactivate */}
-                              <div
-                                title={
-                                  isSuperAdmin
-                                    ? "Les super administrateurs ne peuvent pas être désactivés depuis l'interface"
-                                    : user.isActive
-                                    ? "Désactiver cet utilisateur"
-                                    : "Réactiver cet utilisateur"
-                                }
-                              >
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className={`h-7 w-7 ${
-                                    isSuperAdmin
-                                      ? "opacity-30 cursor-not-allowed"
-                                      : user.isActive
-                                      ? "text-destructive hover:text-destructive"
-                                      : "text-positive hover:text-positive"
-                                  }`}
-                                  onClick={() => !isSuperAdmin && handleToggleActive(user)}
-                                  disabled={isSuperAdmin || rowActionLoading}
-                                  aria-disabled={isSuperAdmin}
-                                >
-                                  {user.isActive ? (
-                                    <Ban className="size-3.5" />
-                                  ) : (
-                                    <RefreshCw className="size-3.5" />
-                                  )}
-                                </Button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-
-                    {/* Inline error rows */}
-                    {isEditing && editError && (
-                      <TableRow>
-                        <TableCell colSpan={6} className="pt-0 pb-2 px-4">
-                          <p className="text-xs text-destructive">{editError}</p>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    {!isEditing && rowActionError && (
-                      <TableRow>
-                        <TableCell colSpan={6} className="pt-0 pb-2 px-4">
-                          <p className="text-xs text-destructive">{rowActionError}</p>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                )
-              })}
-
-              {users.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
-                    <div className="flex flex-col items-center justify-center py-4">
-                      <img
-                        src="/empty-state.png"
-                        alt="Aucun utilisateur"
-                        className="h-32 w-32 object-contain mb-4 rounded-xl opacity-80"
-                      />
-                      <p className="text-sm font-medium text-foreground">Aucun utilisateur trouvé.</p>
-                      <p className="text-xs text-muted-foreground mt-1">Créez le premier utilisateur avec le bouton ci-dessus.</p>
+                      </div>
                     </div>
                   </TableCell>
+
+                  {/* Email */}
+                  <TableCell className="text-muted-foreground text-sm">
+                    {user.email}
+                  </TableCell>
+
+                  {/* Phone */}
+                  <TableCell className="text-muted-foreground text-sm">
+                    {user.phone || "—"}
+                  </TableCell>
+
+                  {/* Role */}
+                  <TableCell>
+                    <Badge variant={roleBadgeVariant(user.roleId)}>
+                      {getRoleLabel(user.roleId)}
+                    </Badge>
+                  </TableCell>
+
+                  {/* Status */}
+                  <TableCell>
+                    <Badge variant={user.isActive ? "positive" : "negative"}>
+                      {user.isActive ? "Actif" : "Inactif"}
+                    </Badge>
+                  </TableCell>
+
+                  {/* Actions */}
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 hover:text-primary"
+                      onClick={() => setSelectedUserId(user.id)}
+                      title="Consulter et éditer"
+                    >
+                      <Eye className="size-4" />
+                    </Button>
+                  </TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              )
+            })}
+
+            {filteredUsers.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
+                  <p className="text-sm font-medium text-foreground">Aucun membre correspondant trouvé.</p>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }

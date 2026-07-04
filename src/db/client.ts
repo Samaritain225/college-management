@@ -38,6 +38,18 @@ export async function initDb() {
     await db.execute(stmt)
   }
 
+  // Run dynamic migrations for existing tables
+  try {
+    const tableInfo = await db.execute("PRAGMA table_info(investors)")
+    const columns = tableInfo.rows.map((r: any) => r.name)
+    if (!columns.includes("user_id")) {
+      await db.execute("ALTER TABLE investors ADD COLUMN user_id TEXT")
+      console.log("Successfully migrated: added user_id to investors table")
+    }
+  } catch (e) {
+    console.error("Migration check failed:", e)
+  }
+
   // Seed default admin if no investors exist
   try {
     const res = await db.execute("SELECT COUNT(*) as count FROM investors")
@@ -45,16 +57,14 @@ export async function initDb() {
       const id = uuid()
       const joinedAt = new Date().toISOString()
       await db.execute({
-        sql: `INSERT INTO investors (id, name, phone, email, role, pin_hash, agreed_contribution, joined_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO investors (id, name, phone, agreed_contribution, joined_at, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)`,
         args: [
           id,
           "Directeur (Admin)",
           "+225 07 00 00 00 00",
-          "admin@college.ci",
-          "admin",
-          "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4", // '1234'
           0,
+          joinedAt,
           joinedAt,
         ]
       })

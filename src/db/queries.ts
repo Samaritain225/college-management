@@ -3,34 +3,11 @@ import { getDb } from "./client"
 
 export interface Investor {
   id: string
+  user_id: string | null
   name: string
   phone: string | null
-  email: string | null
-  role: "admin" | "investor"
-  pin_hash: string | null
   agreed_contribution: number
   joined_at: string
-}
-
-export async function hashPin(pin: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(pin)
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("")
-}
-
-export async function verifyInvestorPin(id: string, pin: string): Promise<boolean> {
-  const db = getDb()
-  const res = await db.execute({
-    sql: "SELECT pin_hash FROM investors WHERE id = ?",
-    args: [id],
-  })
-  if (res.rows.length === 0) return false
-  const storedHash = res.rows[0].pin_hash as string | null
-  if (!storedHash) return true // No PIN configured
-  const enteredHash = await hashPin(pin)
-  return storedHash === enteredHash
 }
 
 // ---- Investors ------------------------------------------------------
@@ -38,51 +15,72 @@ export async function verifyInvestorPin(id: string, pin: string): Promise<boolea
 export async function listInvestors(): Promise<Investor[]> {
   const db = getDb()
   const res = await db.execute(
-    "SELECT id, name, phone, email, role, pin_hash, agreed_contribution, joined_at FROM investors ORDER BY joined_at ASC"
+    "SELECT id, user_id, name, phone, agreed_contribution, joined_at FROM investors ORDER BY joined_at ASC"
   )
   return res.rows as unknown as Investor[]
 }
 
 export async function addInvestor(input: {
+  userId?: string | null
   name: string
-  phone?: string
-  email?: string
-  role: "admin" | "investor"
-  pin?: string
+  phone?: string | null
   agreedContribution: number
+  joinedAt?: string
   addedBy?: string
 }): Promise<Investor> {
   const db = getDb()
   const id = uuid()
-  const joinedAt = new Date().toISOString()
-  const pinHash = input.pin ? await hashPin(input.pin) : null
+  const joinedAt = input.joinedAt || new Date().toISOString()
+  const createdAt = new Date().toISOString()
 
   await db.execute({
-    sql: `INSERT INTO investors (id, name, phone, email, role, pin_hash, agreed_contribution, joined_at, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO investors (id, user_id, name, phone, agreed_contribution, joined_at, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
+      input.userId ?? null,
       input.name,
       input.phone ?? null,
-      input.email ?? null,
-      input.role,
-      pinHash,
       input.agreedContribution,
       joinedAt,
       input.addedBy ?? null,
+      createdAt,
     ],
   })
 
   return {
     id,
+    user_id: input.userId ?? null,
     name: input.name,
     phone: input.phone ?? null,
-    email: input.email ?? null,
-    role: input.role,
-    pin_hash: pinHash,
     agreed_contribution: input.agreedContribution,
     joined_at: joinedAt,
   }
+}
+
+export async function updateInvestor(
+  id: string,
+  input: {
+    name: string
+    userId: string | null
+    agreedContribution: number
+    phone?: string | null
+  }
+): Promise<void> {
+  const db = getDb()
+  await db.execute({
+    sql: `UPDATE investors 
+          SET name = ?, user_id = ?, agreed_contribution = ?, phone = ?, updated_at = ? 
+          WHERE id = ?`,
+    args: [
+      input.name,
+      input.userId ?? null,
+      input.agreedContribution,
+      input.phone ?? null,
+      new Date().toISOString(),
+      id,
+    ],
+  })
 }
 
 // ---- Pool totals (derived, never stored statically) ------------------
@@ -99,6 +97,30 @@ export async function getTotalContributed(): Promise<number> {
   return Number(res.rows[0].total)
 }
 
+export interface Contribution {
+  id: string
+  investor_id: string
+  amount: number
+  paid_at: string
+  method: string
+  note: string | null
+  recorded_by: string
+}
+
+export async function listContributions(): Promise<Contribution[]> {
+  const db = getDb()
+  const res = await db.execute("SELECT id, investor_id, amount, paid_at, method, note, recorded_by FROM contributions ORDER BY paid_at ASC")
+  return res.rows.map((row: any) => ({
+    id: row.id,
+    investor_id: row.investor_id,
+    amount: Number(row.amount),
+    paid_at: String(row.paid_at),
+    method: String(row.method),
+    note: row.note ? String(row.note) : null,
+    recorded_by: String(row.recorded_by),
+  }))
+}
+
 export interface InvestorStanding extends Investor {
   paid: number
   owed: number
@@ -109,11 +131,11 @@ export async function getInvestorStandings(): Promise<InvestorStanding[]> {
   const db = getDb()
   const pool = await getPoolTotal()
   const res = await db.execute(`
-    SELECT i.id, i.name, i.phone, i.email, i.role, i.agreed_contribution, i.joined_at,
+    SELECT i.id, i.user_id, i.name, i.phone, i.agreed_contribution, i.joined_at,
            COALESCE(SUM(c.amount), 0) as paid
     FROM investors i
     LEFT JOIN contributions c ON c.investor_id = i.id
-    GROUP BY i.id
+    GROUP BY i.id, i.user_id, i.name, i.phone, i.agreed_contribution, i.joined_at
     ORDER BY i.joined_at ASC
   `)
 
@@ -161,7 +183,7 @@ export interface Expense {
   description: string
   spent_at: string
   recorded_by: string
-  recorded_by_name: string
+  recorded_by_name: string | null
   reverses_expense_id: string | null
 }
 
@@ -172,7 +194,7 @@ export async function listExpenses(): Promise<Expense[]> {
            e.spent_at, e.recorded_by, i.name as recorded_by_name, e.reverses_expense_id
     FROM expenses e
     JOIN budget_categories c ON c.id = e.category_id
-    JOIN investors i ON i.id = e.recorded_by
+    LEFT JOIN investors i ON i.user_id = e.recorded_by OR i.id = e.recorded_by
     ORDER BY e.spent_at DESC
   `)
   return res.rows as unknown as Expense[]
@@ -221,4 +243,54 @@ export async function getSpentByCategory(): Promise<{ name: string; amount: numb
     name: r.name,
     amount: Number(r.amount),
   }))
+}
+
+export interface Activity {
+  id: string
+  type: "contribution" | "expense"
+  title: string
+  subtitle: string
+  amount: number
+  date: string
+}
+
+export async function getRecentActivities(): Promise<Activity[]> {
+  const db = getDb()
+  
+  // Fetch latest 5 contributions
+  const contribRes = await db.execute(`
+    SELECT c.id, i.name as title, c.method as subtitle, c.amount, c.paid_at as date
+    FROM contributions c
+    JOIN investors i ON c.investor_id = i.id
+    ORDER BY c.paid_at DESC LIMIT 5
+  `)
+  const contribs: Activity[] = contribRes.rows.map((row: any) => ({
+    id: row.id,
+    type: "contribution",
+    title: String(row.title),
+    subtitle: String(row.subtitle || "Contribution"),
+    amount: Number(row.amount),
+    date: String(row.date),
+  }))
+
+  // Fetch latest 5 expenses
+  const expenseRes = await db.execute(`
+    SELECT e.id, e.description as title, cat.name as subtitle, e.amount, e.spent_at as date
+    FROM expenses e
+    JOIN budget_categories cat ON e.category_id = cat.id
+    ORDER BY e.spent_at DESC LIMIT 5
+  `)
+  const expenses: Activity[] = expenseRes.rows.map((row: any) => ({
+    id: row.id,
+    type: "expense",
+    title: String(row.title),
+    subtitle: String(row.subtitle || "Dépense"),
+    amount: Number(row.amount),
+    date: String(row.date),
+  }))
+
+  // Combine and sort DESC by date
+  return [...contribs, ...expenses]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5)
 }

@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label"
 import { useSettings } from "@/lib/settings"
 import { useAuth } from "@/lib/auth"
 import { isApiError } from "@/lib/api"
-import { Lock, Pencil, Eye, EyeOff, AlertTriangle } from "lucide-react"
+import { Lock, Pencil, Eye, EyeOff } from "lucide-react"
+import { toast } from "sonner"
 
 const quotes = [
   { text: "L'éducation est l'arme la plus puissante pour changer le monde.", author: "Nelson Mandela" },
@@ -21,20 +22,6 @@ const quotes = [
   { text: "Les portes de la sagesse ne sont jamais fermées à ceux qui veulent apprendre.", author: "Benjamin Franklin" },
 ]
 
-/** Returns true when the error message describes an account-level block (not wrong credentials). */
-function isAccountBlockedError(message: string): boolean {
-  const lower = message.toLowerCase()
-  return (
-    lower.includes("désactivé") ||
-    lower.includes("deactivated") ||
-    lower.includes("inactive") ||
-    lower.includes("blocked") ||
-    lower.includes("bloqué") ||
-    lower.includes("suspended") ||
-    lower.includes("suspendu")
-  )
-}
-
 export function LoginPage() {
   const { collegeName, collegeLogo } = useSettings()
   const { login } = useAuth()
@@ -43,7 +30,6 @@ export function LoginPage() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [quoteIndex, setQuoteIndex] = useState(0)
   const [fadeState, setFadeState] = useState<"in" | "out">("in")
 
@@ -61,26 +47,30 @@ export function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
     setSubmitting(true)
 
     try {
-      await login(email, password)
-      // AuthProvider updates user state → App.tsx re-renders with the main app.
+      const user = await login(email, password)
+      toast.success(`Bon retour, ${user.name} !`)
     } catch (err) {
       if (isApiError(err)) {
-        setError(err.message)
-      } else if (err instanceof Error) {
-        setError(err.message)
+        if (err.status === 403) {
+          // Deactivated account - longer duration (10s) and explicit message
+          toast.error(err.message || "Compte désactivé. Veuillez contacter un administrateur.", {
+            duration: 10000,
+          })
+        } else {
+          // 401 Wrong credentials or other api errors
+          toast.error(err.message || "Identifiants incorrects.")
+        }
       } else {
-        setError("Une erreur inattendue s'est produite. Veuillez réessayer.")
+        // Network connection error
+        toast.error("Impossible de contacter le serveur — vérifiez votre connexion.")
       }
     } finally {
       setSubmitting(false)
     }
   }
-
-  const blocked = error !== null && isAccountBlockedError(error)
 
   return (
     <div className="flex min-h-screen w-screen bg-slate-50 font-sans">
@@ -119,13 +109,13 @@ export function LoginPage() {
                 <div className="space-y-1.5">
                   <Label htmlFor="login-email">Email professionnel</Label>
                   <Input
-                    id="login-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nom@college.ci"
-                    required
-                    disabled={submitting}
+                     id="login-email"
+                     type="email"
+                     value={email}
+                     onChange={(e) => setEmail(e.target.value)}
+                     placeholder="nom@college.ci"
+                     required
+                     disabled={submitting}
                   />
                 </div>
 
@@ -155,20 +145,6 @@ export function LoginPage() {
                     </button>
                   </div>
                 </div>
-
-                {/* Error display — visually distinct for account blocks vs wrong credentials */}
-                {error && (
-                  <div
-                    className={`flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs font-medium ${
-                      blocked
-                        ? "bg-amber-50 border border-amber-200 text-amber-800"
-                        : "bg-destructive/8 border border-destructive/20 text-destructive"
-                    }`}
-                  >
-                    <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
-                    <span>{error}</span>
-                  </div>
-                )}
 
                 <Button type="submit" className="w-full mt-2" disabled={submitting}>
                   {submitting ? "Connexion en cours…" : "Se connecter"}
