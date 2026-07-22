@@ -5,70 +5,87 @@ import { v4 as uuid } from "uuid"
 // Local-first Turso client. In the Tauri build this points at a real file
 // on disk via TAURI_DB_PATH (set in src-tauri); falls back to an in-memory
 // DB during plain `vite dev` in a browser tab.
-//
-// `syncUrl` + `authToken` point at the remote Turso database (the same one
-// AdonisJS reads/writes server-side). Calling `client.sync()` pulls/pushes
-// changes whenever the device has internet — that's the entire offline
-// sync mechanism, no custom push/pull endpoints needed.
 
 let client: Client | null = null
+
+function createBrowserFallbackClient(): Client {
+  const dummyClient: any = {
+    async execute(_stmt: any) {
+      return { rows: [], columns: [], rowsAffected: 0, lastInsertRowid: undefined }
+    },
+    async batch(stmts: any[]) {
+      return stmts.map(() => ({ rows: [], columns: [], rowsAffected: 0, lastInsertRowid: undefined }))
+    },
+    async sync() {
+      return { clientReads: 0, serverWrites: 0 } as any
+    },
+    close() {},
+  }
+  return dummyClient as Client
+}
 
 export function getDb(): Client {
   if (client) return client
 
-  // In Tauri, VITE_LOCAL_DB_PATH points at a real file on disk.
-  // In a plain browser tab (vite dev without Tauri), file: URLs aren't
-  // supported by the web build of @libsql/client — fall back to :memory:.
-  let localPath = import.meta.env.VITE_LOCAL_DB_PATH ?? ":memory:"
+  const syncUrl = import.meta.env.VITE_TURSO_SYNC_URL
+  const authToken = import.meta.env.VITE_TURSO_AUTH_TOKEN
+  const localPath = import.meta.env.VITE_LOCAL_DB_PATH
+
   const isBrowserMode =
     typeof window !== "undefined" &&
     !(window as any).__TAURI__ &&
     !(window as any).__TAURI_INTERNALS__
 
-  if (isBrowserMode && (localPath.startsWith("file:") || localPath.endsWith(".db"))) {
-    localPath = ":memory:"
+  // In a plain browser tab (vite dev without Tauri or Turso URL),
+  // @libsql/client/web does not support file: or :memory: schemes.
+  if (isBrowserMode && !syncUrl) {
+    client = createBrowserFallbackClient()
+    return client
   }
 
-  const syncUrl = import.meta.env.VITE_TURSO_SYNC_URL
-  const authToken = import.meta.env.VITE_TURSO_AUTH_TOKEN
-
-  client = createClient({
-    url: localPath,
-    ...(syncUrl ? { syncUrl, authToken } : {}),
-  })
+  try {
+    const targetUrl = syncUrl || localPath || ":memory:"
+    client = createClient({
+      url: targetUrl,
+      ...(authToken ? { authToken } : {}),
+    })
+  } catch (err) {
+    console.warn("Failed to initialize @libsql/client, using browser fallback:", err)
+    client = createBrowserFallbackClient()
+  }
 
   return client
 }
 
 export async function initDb() {
   const db = getDb()
-  for (const stmt of SCHEMA_STATEMENTS) {
-    await db.execute(stmt)
-  }
-
-  // Run dynamic migrations for existing tables
   try {
+    for (const stmt of SCHEMA_STATEMENTS) {
+      await db.execute(stmt)
+    }
+
+    // Run dynamic migrations for existing tables
     const tableInfo = await db.execute("PRAGMA table_info(investors)")
     const columns = tableInfo.rows.map((r: any) => r.name)
-    if (!columns.includes("user_id")) {
+    if (columns.length > 0 && !columns.includes("user_id")) {
       await db.execute("ALTER TABLE investors ADD COLUMN user_id TEXT")
       console.log("Successfully migrated: added user_id to investors table")
     }
 
     const catTableInfo = await db.execute("PRAGMA table_info(budget_categories)")
     const catColumns = catTableInfo.rows.map((r: any) => r.name)
-    if (!catColumns.includes("description")) {
+    if (catColumns.length > 0 && !catColumns.includes("description")) {
       await db.execute("ALTER TABLE budget_categories ADD COLUMN description TEXT")
       console.log("Successfully migrated: added description to budget_categories table")
     }
   } catch (e) {
-    console.error("Migration check failed:", e)
+    console.warn("Migration check warning:", e)
   }
 
   // Seed default admin if no investors exist
   try {
     const res = await db.execute("SELECT COUNT(*) as count FROM investors")
-    if (res.rows && Number(res.rows[0].count) === 0) {
+    if (res.rows && res.rows.length > 0 && Number(res.rows[0].count) === 0) {
       const id = uuid()
       const joinedAt = new Date().toISOString()
       await db.execute({
@@ -81,17 +98,17 @@ export async function initDb() {
           0,
           joinedAt,
           joinedAt,
-        ]
+        ],
       })
     }
   } catch (e) {
-    console.error("Failed to seed default admin:", e)
+    console.warn("Failed to seed default admin:", e)
   }
 
   // Seed default budget categories if none exist
   try {
     const catRes = await db.execute("SELECT COUNT(*) as count FROM budget_categories")
-    if (catRes.rows && Number(catRes.rows[0].count) === 0) {
+    if (catRes.rows && catRes.rows.length > 0 && Number(catRes.rows[0].count) === 0) {
       const now = new Date().toISOString()
       const defaultCategories = [
         { name: "Mobilier & Équipements", description: "Tables, bancs, chaises et matériels de classe" },
@@ -107,10 +124,9 @@ export async function initDb() {
           args: [uuid(), cat.name, cat.description, now],
         })
       }
-      console.log("Successfully seeded default budget categories")
     }
   } catch (e) {
-    console.error("Failed to seed default budget categories:", e)
+    console.warn("Failed to seed default budget categories:", e)
   }
 }
 
@@ -120,7 +136,6 @@ export async function trySync() {
     await db.sync()
     return true
   } catch {
-    // Offline or sync server unreachable — local DB still fully usable.
     return false
   }
 }

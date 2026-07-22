@@ -59,7 +59,8 @@ interface ApiAuthUser {
 // The backend's serialize() helper wraps responses in a { data: ... } envelope.
 interface LoginResponse {
   data: {
-    token: string
+    accessToken: string
+    refreshToken: string
     user: ApiAuthUser
   }
 }
@@ -273,7 +274,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       password,
     })
-    const newToken = data.data.token
+    const newToken = data.data.accessToken
     const mappedUser = mapApiUserToAuthUser(data.data.user)
     writePersistedToken(newToken)
     writePersistedUser(mappedUser)

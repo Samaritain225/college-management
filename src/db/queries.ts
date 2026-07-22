@@ -203,10 +203,14 @@ export async function addCategory(name: string, description?: string): Promise<B
     console.warn("API creation for category failed, saving locally:", err)
   }
 
-  await db.execute({
-    sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description",
-    args: [categoryId, finalName, finalDesc, new Date().toISOString()],
-  })
+  try {
+    await db.execute({
+      sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description",
+      args: [categoryId, finalName, finalDesc, new Date().toISOString()],
+    })
+  } catch (dbErr) {
+    console.warn("Local DB execute for addCategory skipped:", dbErr)
+  }
 
   return { id: categoryId, name: finalName, description: finalDesc }
 }
@@ -222,10 +226,14 @@ export async function updateCategory(id: string, name: string, description?: str
     console.warn("API update for category failed, saving locally:", err)
   }
 
-  await db.execute({
-    sql: "UPDATE budget_categories SET name = ?, description = ? WHERE id = ?",
-    args: [name, description ?? null, id],
-  })
+  try {
+    await db.execute({
+      sql: "UPDATE budget_categories SET name = ?, description = ? WHERE id = ?",
+      args: [name, description ?? null, id],
+    })
+  } catch (dbErr) {
+    console.warn("Local DB execute for updateCategory skipped:", dbErr)
+  }
 }
 
 // ---- Expenses ------------------------------------------------------
