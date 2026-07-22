@@ -73,9 +73,9 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-screen bg-slate-50 font-sans">
+    <div className="flex min-h-screen w-screen bg-white font-sans">
       {/* Left Column: Form Panel */}
-      <div className="flex w-full flex-col justify-center px-6 py-12 md:w-1/2 lg:px-16 xl:px-24 bg-card border-r border-border">
+      <div className="flex w-full flex-col justify-center px-6 py-12 md:w-1/2 lg:px-16 xl:px-24 bg-white">
         <div className="mx-auto w-full max-w-sm space-y-8">
           {/* Logo / Header */}
           <div className="flex flex-col items-center text-center gap-4">
@@ -156,63 +156,65 @@ export function LoginPage() {
       </div>
 
       {/* Right Column: Visual Artwork (hidden on small devices) */}
-      <div className="relative hidden w-1/2 md:flex overflow-hidden select-none">
-        {/* Full screen image layout */}
-        <img
-          src="/login-artwork.png"
-          alt="Wagnon Budget"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        {/* Dark overlay for readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
+      <div className="hidden w-1/2 md:flex items-center justify-center p-4 lg:p-6 select-none bg-white">
+        <div className="relative w-full h-full overflow-hidden rounded-2xl border border-border/40 shadow-lg">
+          {/* Full screen image layout */}
+          <img
+            src="/login-artwork.png"
+            alt="College Budget"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          {/* Dark overlay for readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
 
-        {/* Fading quotes container */}
-        <div className="absolute bottom-8 left-12 right-12 z-10 max-w-2xl w-[calc(100%-6rem)]">
-          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
-            <defs>
-              <linearGradient id="ants-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" className="gradient-stop-1" />
-                <stop offset="50%" className="gradient-stop-2" />
-                <stop offset="100%" className="gradient-stop-3" />
-              </linearGradient>
-            </defs>
-            <rect
-              x="0"
-              y="0"
-              width="100%"
-              height="100%"
-              rx="16"
-              fill="none"
-              stroke="url(#ants-gradient)"
-              strokeWidth="2"
-              className="marching-ants-border opacity-70"
-            />
-          </svg>
+          {/* Fading quotes container */}
+          <div className="absolute bottom-8 left-8 right-8 z-10 max-w-2xl">
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+              <defs>
+                <linearGradient id="ants-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" className="gradient-stop-1" />
+                  <stop offset="50%" className="gradient-stop-2" />
+                  <stop offset="100%" className="gradient-stop-3" />
+                </linearGradient>
+              </defs>
+              <rect
+                x="0"
+                y="0"
+                width="100%"
+                height="100%"
+                rx="16"
+                fill="none"
+                stroke="url(#ants-gradient)"
+                strokeWidth="2"
+                className="marching-ants-border opacity-70"
+              />
+            </svg>
 
-          <div className="relative flex flex-col items-start bg-black/45 backdrop-blur-md rounded-2xl p-6 transition-all duration-500 ease-in-out w-full">
-            <p
-              className={`text-lg md:text-xl font-medium text-white/95 leading-relaxed transition-all duration-500 transform ${
-                fadeState === "in"
-                  ? "opacity-100 translate-x-0 blur-none"
-                  : "opacity-0 -translate-x-4 blur-xs"
-              }`}
-            >
-              " {quotes[quoteIndex].text} "
-            </p>
-
-            <div className="flex items-center gap-2.5 mt-4 pt-3 border-t border-white/5 w-full text-white/90">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-white shadow-xs">
-                <Pencil className="size-3" />
-              </div>
-              <span
-                className={`text-xs md:text-sm font-semibold tracking-wide transition-all duration-500 transform ${
+            <div className="relative flex flex-col items-start bg-black/45 backdrop-blur-md rounded-2xl p-6 transition-all duration-500 ease-in-out w-full">
+              <p
+                className={`text-lg md:text-xl font-medium text-white/95 leading-relaxed transition-all duration-500 transform ${
                   fadeState === "in"
-                    ? "opacity-100 translate-y-0"
-                    : "opacity-0 translate-y-2"
+                    ? "opacity-100 translate-x-0 blur-none"
+                    : "opacity-0 -translate-x-4 blur-xs"
                 }`}
               >
-                {quotes[quoteIndex].author}
-              </span>
+                " {quotes[quoteIndex].text} "
+              </p>
+
+              <div className="flex items-center gap-2.5 mt-4 pt-3 border-t border-white/5 w-full text-white/90">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-white shadow-xs">
+                  <Pencil className="size-3" />
+                </div>
+                <span
+                  className={`text-xs md:text-sm font-semibold tracking-wide transition-all duration-500 transform ${
+                    fadeState === "in"
+                      ? "opacity-100 translate-y-0"
+                      : "opacity-0 translate-y-2"
+                  }`}
+                >
+                  {quotes[quoteIndex].author}
+                </span>
+              </div>
             </div>
           </div>
         </div>

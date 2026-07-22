@@ -19,7 +19,15 @@ export function getDb(): Client {
   // In Tauri, VITE_LOCAL_DB_PATH points at a real file on disk.
   // In a plain browser tab (vite dev without Tauri), file: URLs aren't
   // supported by the web build of @libsql/client — fall back to :memory:.
-  const localPath = import.meta.env.VITE_LOCAL_DB_PATH ?? ":memory:"
+  let localPath = import.meta.env.VITE_LOCAL_DB_PATH ?? ":memory:"
+  const isBrowserMode =
+    typeof window !== "undefined" &&
+    !(window as any).__TAURI__ &&
+    !(window as any).__TAURI_INTERNALS__
+
+  if (isBrowserMode && (localPath.startsWith("file:") || localPath.endsWith(".db"))) {
+    localPath = ":memory:"
+  }
 
   const syncUrl = import.meta.env.VITE_TURSO_SYNC_URL
   const authToken = import.meta.env.VITE_TURSO_AUTH_TOKEN
@@ -46,6 +54,13 @@ export async function initDb() {
       await db.execute("ALTER TABLE investors ADD COLUMN user_id TEXT")
       console.log("Successfully migrated: added user_id to investors table")
     }
+
+    const catTableInfo = await db.execute("PRAGMA table_info(budget_categories)")
+    const catColumns = catTableInfo.rows.map((r: any) => r.name)
+    if (!catColumns.includes("description")) {
+      await db.execute("ALTER TABLE budget_categories ADD COLUMN description TEXT")
+      console.log("Successfully migrated: added description to budget_categories table")
+    }
   } catch (e) {
     console.error("Migration check failed:", e)
   }
@@ -71,6 +86,31 @@ export async function initDb() {
     }
   } catch (e) {
     console.error("Failed to seed default admin:", e)
+  }
+
+  // Seed default budget categories if none exist
+  try {
+    const catRes = await db.execute("SELECT COUNT(*) as count FROM budget_categories")
+    if (catRes.rows && Number(catRes.rows[0].count) === 0) {
+      const now = new Date().toISOString()
+      const defaultCategories = [
+        { name: "Mobilier & Équipements", description: "Tables, bancs, chaises et matériels de classe" },
+        { name: "Fournitures & Pédagogie", description: "Manuels, registres, rames de papier et consommables" },
+        { name: "Maintenance & Entretien", description: "Travaux de rénovation, plomberie et électricité" },
+        { name: "Événements & Activités", description: "Fêtes d'école, cérémonies et activités sportives" },
+        { name: "Frais Généraux & Divers", description: "Dépenses imprévues et fournitures administratives" },
+      ]
+
+      for (const cat of defaultCategories) {
+        await db.execute({
+          sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?)",
+          args: [uuid(), cat.name, cat.description, now],
+        })
+      }
+      console.log("Successfully seeded default budget categories")
+    }
+  } catch (e) {
+    console.error("Failed to seed default budget categories:", e)
   }
 }
 

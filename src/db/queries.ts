@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid"
 import { getDb } from "./client"
+import { api } from "@/lib/api"
 
 export interface Investor {
   id: string
@@ -152,22 +153,79 @@ export async function getInvestorStandings(): Promise<InvestorStanding[]> {
 export interface BudgetCategory {
   id: string
   name: string
+  description?: string | null
 }
 
 export async function listCategories(): Promise<BudgetCategory[]> {
   const db = getDb()
-  const res = await db.execute("SELECT id, name FROM budget_categories ORDER BY name ASC")
+  try {
+    const res = await api.get<{ data: { categories: any[] } }>("/expense-categories")
+    if (res?.data?.categories) {
+      const categories: BudgetCategory[] = res.data.categories.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description ?? null,
+      }))
+      for (const cat of categories) {
+        await db.execute({
+          sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description",
+          args: [cat.id, cat.name, cat.description ?? null, new Date().toISOString()],
+        })
+      }
+      return categories
+    }
+  } catch (err) {
+    console.warn("Failed to fetch expense categories from API, using local DB:", err)
+  }
+
+  const res = await db.execute("SELECT id, name, description FROM budget_categories ORDER BY name ASC")
   return res.rows as unknown as BudgetCategory[]
 }
 
-export async function addCategory(name: string): Promise<BudgetCategory> {
+export async function addCategory(name: string, description?: string): Promise<BudgetCategory> {
   const db = getDb()
-  const id = uuid()
+  let categoryId = uuid()
+  let finalName = name
+  let finalDesc = description ?? null
+
+  try {
+    const res = await api.post<{ data: { category: any } }>("/expense-categories", {
+      name,
+      description: description || undefined,
+    })
+    if (res?.data?.category) {
+      const apiCat = res.data.category
+      categoryId = apiCat.id
+      finalName = apiCat.name
+      finalDesc = apiCat.description ?? null
+    }
+  } catch (err) {
+    console.warn("API creation for category failed, saving locally:", err)
+  }
+
   await db.execute({
-    sql: "INSERT INTO budget_categories (id, name, created_at) VALUES (?, ?, ?)",
-    args: [id, name, new Date().toISOString()],
+    sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description",
+    args: [categoryId, finalName, finalDesc, new Date().toISOString()],
   })
-  return { id, name }
+
+  return { id: categoryId, name: finalName, description: finalDesc }
+}
+
+export async function updateCategory(id: string, name: string, description?: string): Promise<void> {
+  const db = getDb()
+  try {
+    await api.patch(`/expense-categories/${id}`, {
+      name,
+      description: description || undefined,
+    })
+  } catch (err) {
+    console.warn("API update for category failed, saving locally:", err)
+  }
+
+  await db.execute({
+    sql: "UPDATE budget_categories SET name = ?, description = ? WHERE id = ?",
+    args: [name, description ?? null, id],
+  })
 }
 
 // ---- Expenses ------------------------------------------------------
@@ -189,6 +247,45 @@ export interface Expense {
 
 export async function listExpenses(): Promise<Expense[]> {
   const db = getDb()
+  try {
+    const res = await api.get<{ data: { expenses: any[] } }>("/expenses")
+    if (res?.data?.expenses) {
+      const apiExpenses: Expense[] = res.data.expenses.map((e: any) => ({
+        id: e.id,
+        category_id: e.categoryId,
+        category_name: e.category?.name || "Catégorie inconnue",
+        amount: Number(e.amount),
+        description: e.description,
+        spent_at: e.spentAt,
+        recorded_by: e.recordedBy,
+        recorded_by_name: e.creator?.name || e.recordedBy,
+        reverses_expense_id: e.reversesExpenseId ?? null,
+      }))
+
+      for (const e of apiExpenses) {
+        await db.execute({
+          sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, reverses_expense_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET amount=excluded.amount, description=excluded.description, spent_at=excluded.spent_at`,
+          args: [
+            e.id,
+            e.category_id,
+            e.amount,
+            e.description,
+            e.spent_at,
+            e.recorded_by,
+            e.reverses_expense_id,
+            new Date().toISOString(),
+          ],
+        })
+      }
+
+      return apiExpenses
+    }
+  } catch (err) {
+    console.warn("Failed to fetch expenses from API, using local DB:", err)
+  }
+
   const res = await db.execute(`
     SELECT e.id, e.category_id, c.name as category_name, e.amount, e.description,
            e.spent_at, e.recorded_by, i.name as recorded_by_name, e.reverses_expense_id
@@ -206,18 +303,39 @@ export async function addExpense(input: {
   description: string
   spentAt: string
   recordedBy: string // required — caller must pass the active user's id
+  receiptPhotoPath?: string | null
 }): Promise<void> {
   const db = getDb()
+  let expenseId = uuid()
+
+  try {
+    const res = await api.post<{ data: { expense: any } }>("/expenses", {
+      categoryId: input.categoryId,
+      amount: input.amount,
+      description: input.description,
+      spentAt: input.spentAt,
+      receiptPhotoPath: input.receiptPhotoPath || undefined,
+    })
+
+    if (res?.data?.expense) {
+      expenseId = res.data.expense.id
+    }
+  } catch (err) {
+    console.warn("API creation for expense failed, saving locally:", err)
+  }
+
   await db.execute({
-    sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, receipt_photo_path, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET amount=excluded.amount, description=excluded.description`,
     args: [
-      uuid(),
+      expenseId,
       input.categoryId,
       input.amount,
       input.description,
       input.spentAt,
       input.recordedBy,
+      input.receiptPhotoPath ?? null,
       new Date().toISOString(),
     ],
   })

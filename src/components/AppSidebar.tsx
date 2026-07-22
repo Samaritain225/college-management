@@ -1,16 +1,29 @@
 import * as React from "react"
-import { LayoutDashboard, Users, Receipt, Settings, GraduationCap, BookOpen, School } from "lucide-react"
+import {
+  LayoutDashboard,
+  Users,
+  Receipt,
+  Settings,
+  GraduationCap,
+  BookOpen,
+  School,
+  UserCog,
+  FolderTree,
+} from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { useSettings } from "@/lib/settings"
 
-type Tab = "dashboard" | "investors" | "expenses" | "users" | "settings" | "profile" | "teachers" | "students" | "classes"
+type Tab = "dashboard" | "investors" | "expenses" | "categories" | "users" | "settings" | "profile" | "teachers" | "students" | "classes"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   currentTab: Tab
@@ -24,17 +37,25 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
 
   const canManageUsers = userRole === "admin" || userRole === "super_admin"
 
-  const mainItems = [
-    { id: "dashboard" as Tab, title: "Tableau de bord", icon: LayoutDashboard },
+  const academicItems = [
     { id: "teachers" as Tab, title: "Enseignants", icon: GraduationCap },
     { id: "students" as Tab, title: "Élèves", icon: BookOpen },
     { id: "classes" as Tab, title: "Classes", icon: School },
+  ]
+
+  const financeItems = [
     { id: "expenses" as Tab, title: "Dépenses", icon: Receipt },
+    { id: "categories" as Tab, title: "Catégories", icon: FolderTree },
     ...(canManageUsers
-      ? [
-          { id: "investors" as Tab, title: "Investisseurs", icon: Users },
-        ]
+      ? [{ id: "investors" as Tab, title: "Investisseurs", icon: Users }]
       : []),
+  ]
+
+  const systemItems = [
+    ...(canManageUsers
+      ? [{ id: "users" as Tab, title: "Utilisateurs", icon: UserCog }]
+      : []),
+    { id: "settings" as Tab, title: "Paramètres", icon: Settings },
   ]
 
   return (
@@ -53,44 +74,114 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
           </span>
         </div>
       </SidebarHeader>
-      <SidebarContent className="px-3 py-4 flex flex-col justify-between">
-        <SidebarMenu className="gap-1.5">
-          {mainItems.map((item) => (
-            <SidebarMenuItem key={item.id}>
-              <SidebarMenuButton
-                tooltip={item.title}
-                isActive={currentTab === item.id}
-                onClick={() => onTabChange(item.id)}
-                className={`w-full justify-start gap-3 transition-colors ${
-                  currentTab === item.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                }`}
-              >
-                <item.icon className="h-4.5 w-4.5 shrink-0" />
-                <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
 
-        <SidebarMenu className="gap-1.5 mt-auto">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              tooltip="Paramètres"
-              isActive={currentTab === "settings"}
-              onClick={() => onTabChange("settings")}
-              className={`w-full justify-start gap-3 transition-colors ${
-                currentTab === "settings"
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              }`}
-            >
-              <Settings className="h-4.5 w-4.5 shrink-0" />
-              <span className="group-data-[collapsible=icon]:hidden">Paramètres</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+      <SidebarContent className="px-3 py-3 space-y-4">
+        {/* Top Ungrouped Item: Tableau de bord */}
+        <SidebarGroup className="p-0">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="Tableau de bord"
+                  isActive={currentTab === "dashboard"}
+                  onClick={() => onTabChange("dashboard")}
+                  className={`w-full justify-start gap-3 transition-colors ${
+                    currentTab === "dashboard"
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  }`}
+                >
+                  <LayoutDashboard className="h-4.5 w-4.5 shrink-0" />
+                  <span className="group-data-[collapsible=icon]:hidden">Tableau de bord</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Group 1: Académique */}
+        <SidebarGroup className="p-0 space-y-1">
+          <SidebarGroupLabel className="text-3xs font-bold text-muted-foreground/70 tracking-wider px-2 group-data-[collapsible=icon]:hidden">
+            Académique
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-1">
+              {academicItems.map((item) => (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton
+                    tooltip={item.title}
+                    isActive={currentTab === item.id}
+                    onClick={() => onTabChange(item.id)}
+                    className={`w-full justify-start gap-3 transition-colors ${
+                      currentTab === item.id
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    }`}
+                  >
+                    <item.icon className="h-4.5 w-4.5 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Group 2: Finances */}
+        <SidebarGroup className="p-0 space-y-1">
+          <SidebarGroupLabel className="text-3xs font-bold text-muted-foreground/70 tracking-wider px-2 group-data-[collapsible=icon]:hidden">
+            Finances
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-1">
+              {financeItems.map((item) => (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton
+                    tooltip={item.title}
+                    isActive={currentTab === item.id}
+                    onClick={() => onTabChange(item.id)}
+                    className={`w-full justify-start gap-3 transition-colors ${
+                      currentTab === item.id
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    }`}
+                  >
+                    <item.icon className="h-4.5 w-4.5 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Group 3: Système */}
+        <SidebarGroup className="p-0 space-y-1 mt-auto">
+          <SidebarGroupLabel className="text-3xs font-bold text-muted-foreground/70 tracking-wider px-2 group-data-[collapsible=icon]:hidden">
+            Système
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-1">
+              {systemItems.map((item) => (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton
+                    tooltip={item.title}
+                    isActive={currentTab === item.id}
+                    onClick={() => onTabChange(item.id)}
+                    className={`w-full justify-start gap-3 transition-colors ${
+                      currentTab === item.id
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    }`}
+                  >
+                    <item.icon className="h-4.5 w-4.5 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   )

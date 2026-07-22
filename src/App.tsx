@@ -25,18 +25,32 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 
-type Tab = "dashboard" | "investors" | "expenses" | "users" | "settings" | "profile" | "teachers" | "students" | "classes"
+type Tab = "dashboard" | "investors" | "expenses" | "categories" | "users" | "settings" | "profile" | "teachers" | "students" | "classes"
 
 const tabLabels: Record<Tab, string> = {
   dashboard: "Tableau de bord",
   investors: "Investisseurs",
   expenses: "Dépenses",
+  categories: "Catégories de dépenses",
   users: "Utilisateurs",
   settings: "Paramètres",
   profile: "Mon compte",
   teachers: "Enseignants",
   students: "Élèves",
   classes: "Classes",
+}
+
+const tabOrder: Record<Tab, number> = {
+  dashboard: 0,
+  teachers: 1,
+  students: 2,
+  classes: 3,
+  expenses: 4,
+  categories: 5,
+  investors: 6,
+  users: 7,
+  settings: 8,
+  profile: 9,
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +96,28 @@ function AppShell() {
     setRefreshKey((k) => k + 1)
   }
 
+  function transitionToTab(newTab: Tab) {
+    if (!document.startViewTransition) {
+      setTab(newTab)
+      return
+    }
+
+    const currentTabVal = tab
+    const oldIndex = tabOrder[currentTabVal] ?? 0
+    const newIndex = tabOrder[newTab] ?? 0
+    const direction = newIndex >= oldIndex ? "forward" : "backward"
+
+    document.documentElement.classList.add(direction)
+
+    const transition = document.startViewTransition(() => {
+      setTab(newTab)
+    })
+
+    transition.finished.finally(() => {
+      document.documentElement.classList.remove("forward", "backward")
+    })
+  }
+
   return (
     <TooltipProvider>
       <SidebarProvider
@@ -95,7 +131,7 @@ function AppShell() {
         <AppSidebar
           variant="inset"
           currentTab={effectiveTab}
-          onTabChange={setTab}
+          onTabChange={transitionToTab}
           userRole={currentUser.role}
         />
         <SidebarInset className="border-0 bg-background md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:border-0 md:peer-data-[variant=inset]:shadow-none">
@@ -113,7 +149,7 @@ function AppShell() {
                       <BreadcrumbLink
                         className="cursor-pointer text-xs"
                         onClick={() => {
-                          setTab("dashboard")
+                          transitionToTab("dashboard")
                           setSubBreadcrumbs([])
                         }}
                       >
@@ -148,7 +184,7 @@ function AppShell() {
                 </Breadcrumb>
               </div>
               <div className="flex items-center gap-4">
-                <ActiveUserBar onNavigateToTab={setTab} />
+                <ActiveUserBar onNavigateToTab={transitionToTab} />
               </div>
             </div>
           </header>
@@ -162,7 +198,7 @@ function AppShell() {
                     if (subId) {
                       setSelectedUserIdForTab(subId)
                     }
-                    setTab(tabName)
+                    transitionToTab(tabName)
                   }}
                 />
               )}
@@ -171,7 +207,22 @@ function AppShell() {
                   <InvestorsPage onChange={bump} dbReady={dbReady} />
                 </RequireRole>
               )}
-              {effectiveTab === "expenses" && <ExpensesPage onChange={bump} dbReady={dbReady} />}
+              {effectiveTab === "expenses" && (
+                <ExpensesPage
+                  mode="expenses"
+                  onChange={bump}
+                  dbReady={dbReady}
+                  onNavigateToTab={transitionToTab}
+                />
+              )}
+              {effectiveTab === "categories" && (
+                <ExpensesPage
+                  mode="categories"
+                  onChange={bump}
+                  dbReady={dbReady}
+                  onNavigateToTab={transitionToTab}
+                />
+              )}
               {effectiveTab === "users" && (
                 <RequireRole roles={["admin", "super_admin"]}>
                   <UsersPage
