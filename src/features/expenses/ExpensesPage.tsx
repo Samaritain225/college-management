@@ -4,6 +4,7 @@ import { fr } from "date-fns/locale"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -37,6 +38,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { Badge } from "@/components/ui/badge"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { formatMoney, cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth"
 import {
@@ -61,6 +63,9 @@ import {
   FolderTree,
   ArrowRight,
   Search,
+  Wallet,
+  Calculator,
+  Clock,
 } from "lucide-react"
 
 function formatAmountInput(val: string): string {
@@ -329,6 +334,29 @@ export function ExpensesPage({
     })
   }, [expenses, searchQuery, selectedCategory])
 
+  // Expense KPIs calculation
+  const expenseKpis = useMemo(() => {
+    const totalCount = expenses.length
+    const totalAmount = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+    const avgAmount = totalCount > 0 ? Math.round(totalAmount / totalCount) : 0
+
+    const todayStr = new Date().toISOString().split("T")[0]
+    const todayExpenses = expenses.filter((e) => {
+      if (!e.spent_at) return false
+      return e.spent_at.startsWith(todayStr)
+    })
+    const todayCount = todayExpenses.length
+    const todayAmount = todayExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+
+    return {
+      totalCount,
+      totalAmount,
+      avgAmount,
+      todayCount,
+      todayAmount,
+    }
+  }, [expenses])
+
   // Filtered categories list
   const filteredCategories = useMemo(() => {
     return categories.filter((c) => {
@@ -420,6 +448,85 @@ export function ExpensesPage({
       {/* ----------------- TAB 1: EXPENSES VIEW ----------------- */}
       {activeTab === "expenses" && (
         <div className="space-y-6">
+          {/* KPI Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border border-border/60 shadow-2xs hover:shadow-xs transition-shadow bg-card">
+              <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+                <CardTitle className="text-xs font-semibold text-muted-foreground">
+                  Nombre de dépenses
+                </CardTitle>
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Receipt className="size-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <div className="text-2xl font-bold tracking-tight text-foreground">
+                  {expenseKpis.totalCount}
+                </div>
+                <p className="text-3xs text-muted-foreground mt-1">
+                  Enregistrées au total
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border border-border/60 shadow-2xs hover:shadow-xs transition-shadow bg-card">
+              <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+                <CardTitle className="text-xs font-semibold text-muted-foreground">
+                  Montant total
+                </CardTitle>
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Wallet className="size-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <div className="text-2xl font-bold tracking-tight text-foreground">
+                  {formatMoney(expenseKpis.totalAmount)}
+                </div>
+                <p className="text-3xs text-muted-foreground mt-1">
+                  Cumul des sorties de caisse
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border border-border/60 shadow-2xs hover:shadow-xs transition-shadow bg-card">
+              <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+                <CardTitle className="text-xs font-semibold text-muted-foreground">
+                  Dépense moyenne
+                </CardTitle>
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Calculator className="size-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <div className="text-2xl font-bold tracking-tight text-foreground">
+                  {formatMoney(expenseKpis.avgAmount)}
+                </div>
+                <p className="text-3xs text-muted-foreground mt-1">
+                  Moyenne par opération
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border border-border/60 shadow-2xs hover:shadow-xs transition-shadow bg-card">
+              <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+                <CardTitle className="text-xs font-semibold text-muted-foreground">
+                  Aujourd'hui
+                </CardTitle>
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Clock className="size-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <div className="text-2xl font-bold tracking-tight text-foreground">
+                  {formatMoney(expenseKpis.todayAmount)}
+                </div>
+                <p className="text-3xs text-muted-foreground mt-1">
+                  {expenseKpis.todayCount} dépense(s) aujourd'hui
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Search & Category Filters */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
             <div className="relative flex-1 max-w-sm">
@@ -702,16 +809,9 @@ export function ExpensesPage({
             {/* Grid for Amount & Date */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="dialog-amount" className="text-xs font-medium text-foreground">
-                    Montant (XOF)
-                  </Label>
-                  {Number(amount.replace(/\D/g, "")) > 0 && (
-                    <span className="text-3xs font-bold text-primary">
-                      {formatMoney(Number(amount.replace(/\D/g, "")))}
-                    </span>
-                  )}
-                </div>
+                <Label htmlFor="dialog-amount" className="text-xs font-medium text-foreground">
+                  Montant (XOF)
+                </Label>
                 <div className="relative">
                   <Input
                     id="dialog-amount"
@@ -773,7 +873,7 @@ export function ExpensesPage({
               <Label htmlFor="dialog-description" className="text-xs font-medium text-foreground">
                 Motif explicatif
               </Label>
-              <textarea
+              <Textarea
                 id="dialog-description"
                 maxLength={255}
                 rows={3}
@@ -783,7 +883,7 @@ export function ExpensesPage({
                   setFieldErrors((prev) => ({ ...prev, description: undefined }))
                 }}
                 placeholder="ex. Achat de 20 bancs en bois pour les classes de 3ème"
-                className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                className="resize-none text-xs"
               />
               {fieldErrors.description && (
                 <p className="text-xs text-negative font-medium">{fieldErrors.description}</p>
