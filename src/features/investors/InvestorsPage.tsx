@@ -412,7 +412,7 @@ export function InvestorsPage({
                   {selectedInvestor.user_id ? (
                     <Badge variant="positive">Accès configuré</Badge>
                   ) : (
-                    <Badge variant="secondary">Pas d'accès</Badge>
+                    <Badge variant="neutral">Pas d'accès</Badge>
                   )}
                 </span>
               </div>
