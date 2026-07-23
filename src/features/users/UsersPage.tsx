@@ -751,8 +751,8 @@ export function UsersPage({
 
             {filteredUsers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
-                  <p className="text-sm font-medium text-foreground">Aucun membre correspondant trouvé.</p>
+                <TableCell colSpan={6} className="text-center h-24 text-ink-soft">
+                  <p className="text-sm font-medium text-ink">Aucun membre correspondant trouvé.</p>
                 </TableCell>
               </TableRow>
             )}

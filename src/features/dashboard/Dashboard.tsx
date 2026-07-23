@@ -88,7 +88,7 @@ export function Dashboard({
     if (currentHour >= 5 && currentHour < 12) {
       greetingText = `Bon matin, ${firstName}. Prêt pour la journée scolaire ?`
     } else if (currentHour >= 12 && currentHour < 18) {
-      greetingText = `Bon après-midi, ${firstName}. Suivi des activités en cours.`
+      greetingText = `Bon après-midi, ${firstName}.`
     } else {
       greetingText = `Bonsoir, ${firstName}. Bilan de la journée disponible.`
     }

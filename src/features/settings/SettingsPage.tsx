@@ -13,7 +13,6 @@ import {
   Info,
   Building,
   UserCog,
-  Sun,
 } from "lucide-react"
 
 export function SettingsPage() {
@@ -71,19 +70,15 @@ export function SettingsPage() {
           Paramètres
         </h1>
         <p className="text-sm text-ink-soft">
-          Gérez l'identité du collège, les utilisateurs & permissions, et l'apparence de l'application
+          Gérez l'identité du collège et les utilisateurs & permissions
         </p>
       </header>
 
       <Tabs defaultValue="info" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="info" className="flex items-center gap-2">
             <Building className="size-4" />
             <span className="hidden sm:inline">Identité</span>
-          </TabsTrigger>
-          <TabsTrigger value="appearance" className="flex items-center gap-2">
-            <Sun className="size-4" />
-            <span className="hidden sm:inline">Apparence</span>
           </TabsTrigger>
           <TabsTrigger value="users" className="flex items-center gap-2">
             <UserCog className="size-4" />
@@ -98,21 +93,21 @@ export function SettingsPage() {
         {/* Tab 1: College Info */}
         <TabsContent value="info">
           <form onSubmit={handleSave} className="space-y-6">
-            <Card>
+            <Card className="border border-ink/10 bg-paper">
               <CardHeader>
-                <CardTitle className="text-foreground font-semibold text-base">Identité Visuelle</CardTitle>
+                <CardTitle className="text-ink font-display font-semibold text-base">Identité Visuelle</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col items-center gap-4 sm:flex-row">
                   {/* Logo Preview */}
-                  <div className="relative flex h-24 w-24 items-center justify-center rounded-xl border border-border bg-slate-50 dark:bg-slate-900 overflow-hidden shadow-inner">
+                  <div className="relative flex h-24 w-24 items-center justify-center rounded-xl border border-ink/15 bg-teal-100/30 overflow-hidden shadow-inner">
                     {logo ? (
                       <>
                         <img src={logo} alt="College Logo" className="h-full w-full object-contain p-2" />
                         <button
                           type="button"
                           onClick={() => setLogo(null)}
-                          className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-destructive text-white shadow-xs hover:bg-destructive/90 transition-colors"
+                          className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-terracotta-600 text-white shadow-xs hover:bg-terracotta-600/85 transition-colors"
                           title="Supprimer le logo"
                         >
                           <X className="size-3" />
@@ -138,7 +133,7 @@ export function SettingsPage() {
                       onChange={handleLogoUpload}
                       className="hidden"
                     />
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-ink-soft">
                       Format recommandé : PNG ou JPG carré, max 2 Mo
                     </p>
                   </div>
@@ -146,51 +141,55 @@ export function SettingsPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-ink/10 bg-paper">
               <CardHeader>
-                <CardTitle className="text-foreground font-semibold text-base">Informations Générales</CardTitle>
+                <CardTitle className="text-ink font-display font-semibold text-base">Informations Générales</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="college-name">Nom du Collège</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="college-name" className="text-xs font-display font-semibold text-ink">Nom du Collège</Label>
                   <Input
                     id="college-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Ex. Collège Moderne de Bouaké"
+                    className="border-ink/15 bg-paper text-ink placeholder:text-ink-soft text-sm font-sans"
                     required
                   />
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="academic-year">Année Académique</Label>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="academic-year" className="text-xs font-display font-semibold text-ink">Année Académique</Label>
                     <Input
                       id="academic-year"
                       value={year}
                       onChange={(e) => setYear(e.target.value)}
                       placeholder="Ex. 2025 - 2026"
+                      className="border-ink/15 bg-paper text-ink placeholder:text-ink-soft text-sm font-sans"
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="college-phone">Téléphone</Label>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="college-phone" className="text-xs font-display font-semibold text-ink">Téléphone</Label>
                     <Input
                       id="college-phone"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="Ex. +225 07 00 00 00 00"
+                      className="border-ink/15 bg-paper text-ink placeholder:text-ink-soft text-sm font-sans"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="college-address">Adresse Physique</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="college-address" className="text-xs font-display font-semibold text-ink">Adresse Physique</Label>
                   <Input
                     id="college-address"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     placeholder="Ex. Quartier Commerce, Rue des Banques, Bouaké"
+                    className="border-ink/15 bg-paper text-ink placeholder:text-ink-soft text-sm font-sans"
                   />
                 </div>
               </CardContent>
@@ -198,47 +197,8 @@ export function SettingsPage() {
 
             <div className="flex items-center justify-end gap-4">
               {success && (
-                <span className="text-sm font-medium text-green-600 transition-all animate-in fade-in">
+                <span className="text-sm font-display font-medium text-positive transition-all animate-in fade-in">
                   Paramètres enregistrés avec succès !
-                </span>
-              )}
-              <Button type="submit" disabled={!hasChanges} className="flex items-center gap-2">
-                <Save className="size-4" />
-                Enregistrer
-              </Button>
-            </div>
-          </form>
-        </TabsContent>
-
-        {/* Tab 2: Appearance & Theme Toggle */}
-        <TabsContent value="appearance">
-          <form onSubmit={handleSave} className="space-y-6">
-            <Card className="border border-ink/10 bg-paper">
-              <CardHeader>
-                <CardTitle className="text-ink font-display font-semibold text-base">Thème de l'application</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-xs text-ink-soft">
-                  Thème visuel basé sur la charte graphique officielle du collège.
-                </p>
-                <div className="flex gap-4">
-                  <div
-                    className="flex flex-1 flex-col items-center gap-3 rounded-xl border border-teal-950 bg-teal-100/50 p-4 text-center"
-                  >
-                    <Sun className="size-6 text-terracotta-600" />
-                    <div className="space-y-1">
-                      <p className="text-sm font-display font-semibold text-ink">Thème Officiel (Clair)</p>
-                      <p className="text-xs text-ink-soft">Couleurs Teal &amp; Terracotta</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="flex items-center justify-end gap-4">
-              {success && (
-                <span className="text-sm font-medium text-positive transition-all animate-in fade-in">
-                  Thème enregistré avec succès !
                 </span>
               )}
               <Button type="submit" disabled={!hasChanges} className="flex items-center gap-2 font-display">
