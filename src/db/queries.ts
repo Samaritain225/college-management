@@ -168,7 +168,7 @@ export async function listCategories(): Promise<BudgetCategory[]> {
       }))
       for (const cat of categories) {
         await db.execute({
-          sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description",
+          sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
           args: [cat.id, cat.name, cat.description ?? null, new Date().toISOString()],
         })
       }
@@ -205,7 +205,7 @@ export async function addCategory(name: string, description?: string): Promise<B
 
   try {
     await db.execute({
-      sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description",
+      sql: "INSERT INTO budget_categories (id, name, description, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
       args: [categoryId, finalName, finalDesc, new Date().toISOString()],
     })
   } catch (dbErr) {
@@ -213,27 +213,6 @@ export async function addCategory(name: string, description?: string): Promise<B
   }
 
   return { id: categoryId, name: finalName, description: finalDesc }
-}
-
-export async function updateCategory(id: string, name: string, description?: string): Promise<void> {
-  const db = getDb()
-  try {
-    await api.patch(`/expense-categories/${id}`, {
-      name,
-      description: description || undefined,
-    })
-  } catch (err) {
-    console.warn("API update for category failed, saving locally:", err)
-  }
-
-  try {
-    await db.execute({
-      sql: "UPDATE budget_categories SET name = ?, description = ? WHERE id = ?",
-      args: [name, description ?? null, id],
-    })
-  } catch (dbErr) {
-    console.warn("Local DB execute for updateCategory skipped:", dbErr)
-  }
 }
 
 // ---- Expenses ------------------------------------------------------
@@ -274,7 +253,7 @@ export async function listExpenses(): Promise<Expense[]> {
         await db.execute({
           sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, reverses_expense_id, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET amount=excluded.amount, description=excluded.description, spent_at=excluded.spent_at`,
+                ON CONFLICT(id) DO NOTHING`,
           args: [
             e.id,
             e.category_id,
@@ -335,7 +314,7 @@ export async function addExpense(input: {
   await db.execute({
     sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, receipt_photo_path, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET amount=excluded.amount, description=excluded.description`,
+          ON CONFLICT(id) DO NOTHING`,
     args: [
       expenseId,
       input.categoryId,

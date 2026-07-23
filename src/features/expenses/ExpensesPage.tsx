@@ -44,7 +44,6 @@ import { useAuth } from "@/lib/auth"
 import {
   addExpense,
   addCategory,
-  updateCategory,
   listCategories,
   listExpenses,
   type BudgetCategory,
@@ -52,7 +51,6 @@ import {
 } from "@/db/queries"
 import {
   Eye,
-  Pencil,
   FileText,
   Calendar as CalendarIcon,
   User,
@@ -125,46 +123,9 @@ export function ExpensesPage({
   const [selectedCategoryDetails, setSelectedCategoryDetails] = useState<BudgetCategory | null>(null)
   const [categorySheetOpen, setCategorySheetOpen] = useState(false)
 
-  // Category edit dialog state
-  const [editingCategory, setEditingCategory] = useState<BudgetCategory | null>(null)
-  const [editCatName, setEditCatName] = useState("")
-  const [editCatDesc, setEditCatDesc] = useState("")
-  const [editCatError, setEditCatError] = useState<string | null>(null)
-  const [editCatSubmitting, setEditCatSubmitting] = useState(false)
-  const [editCatDialogOpen, setEditCatDialogOpen] = useState(false)
-
   function handleOpenCategoryDetails(c: BudgetCategory) {
     setSelectedCategoryDetails(c)
     setCategorySheetOpen(true)
-  }
-
-  function handleOpenCategoryEdit(c: BudgetCategory) {
-    setEditingCategory(c)
-    setEditCatName(c.name)
-    setEditCatDesc(c.description || "")
-    setEditCatError(null)
-    setEditCatDialogOpen(true)
-  }
-
-  async function handleCategoryUpdateSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!editingCategory) return
-    if (!editCatName.trim()) {
-      setEditCatError("Le nom de la catégorie est requis.")
-      return
-    }
-
-    setEditCatSubmitting(true)
-    try {
-      await updateCategory(editingCategory.id, editCatName.trim(), editCatDesc.trim() || undefined)
-      setEditCatDialogOpen(false)
-      await refresh()
-    } catch (err) {
-      console.error(err)
-      setEditCatError("Erreur lors de la mise à jour de la catégorie.")
-    } finally {
-      setEditCatSubmitting(false)
-    }
   }
 
   // Filters and search
@@ -683,15 +644,6 @@ export function ExpensesPage({
                         >
                           <Eye className="size-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenCategoryEdit(c)}
-                          className="size-8 text-muted-foreground hover:text-foreground"
-                          title="Modifier la catégorie"
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1174,77 +1126,6 @@ export function ExpensesPage({
         </SheetContent>
       </Sheet>
 
-      {/* ----------------- CATEGORY EDIT DIALOG ----------------- */}
-      <Dialog open={editCatDialogOpen} onOpenChange={setEditCatDialogOpen}>
-        <DialogContent
-          className="sm:max-w-md p-6 sm:p-7 space-y-4"
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onInteractOutside={(e) => e.preventDefault()}
-        >
-          <DialogHeader className="space-y-1">
-            <DialogTitle className="text-lg font-bold flex items-center gap-2">
-              <Pencil className="size-5 text-primary" />
-              Modifier la Catégorie
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Mettez à jour le nom et la description du poste budgétaire
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleCategoryUpdateSubmit} className="space-y-4 pt-1">
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-cat-name" className="text-xs font-medium text-foreground">
-                Nom de la catégorie
-              </Label>
-              <Input
-                id="edit-cat-name"
-                maxLength={255}
-                value={editCatName}
-                onChange={(e) => {
-                  setEditCatName(e.target.value)
-                  setEditCatError(null)
-                }}
-                placeholder="ex. Équipements informatiques"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-cat-desc" className="text-xs font-medium text-muted-foreground">
-                Description (optionnel)
-              </Label>
-              <textarea
-                id="edit-cat-desc"
-                maxLength={255}
-                rows={3}
-                value={editCatDesc}
-                onChange={(e) => setEditCatDesc(e.target.value)}
-                placeholder="ex. Ordinateurs, imprimantes et réseau"
-                className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-              />
-            </div>
-
-            {editCatError && (
-              <p className="text-xs text-negative font-medium bg-negative/10 p-2 rounded border border-negative/20">
-                {editCatError}
-              </p>
-            )}
-
-            <DialogFooter className="pt-3 border-t border-border/40 gap-2 sm:gap-0">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setEditCatDialogOpen(false)}
-                disabled={editCatSubmitting}
-              >
-                Annuler
-              </Button>
-              <Button type="submit" disabled={editCatSubmitting}>
-                {editCatSubmitting ? "Mise à jour..." : "Mettre à jour"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

@@ -15,8 +15,8 @@ An offline-first expense and contribution tracker for Wagnon College, built as a
 
 ### 1. Offline-First & Sync Mechanics
 This application relies on a local-first schema designed to prevent replication conflicts:
-- **Strict Append-Only**: Financial tables (`expenses`, `contributions`, `investors`, `budget_categories`) are **append-only**.
-- **No Direct Edits/Deletions**: Once synced, records are never updated or deleted. Corrections are made by inserting a reversing row (e.g. expenses use a `reverses_expense_id` field).
+- **Strict Append-Only Ledger**: `expenses`, `contributions`, and `expense_categories` are append-only. They are never directly edited or deleted; corrections are represented by new rows (for example, expenses use a `reverses_expense_id` field).
+- **Mutable Identity Records**: `users` and `investors` are profile/identity records, not ledger entries. They deliberately support updates, and users are deactivated or reactivated with `is_active` rather than deleted.
 - **Opportunistic Synchronization**: Syncing is performed using `@libsql/client` background replication (`client.sync()`) targeting a remote Turso DB, ensuring eventual consistency.
 
 ### 2. Currency (XOF) Calculations
