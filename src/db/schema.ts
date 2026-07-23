@@ -55,8 +55,15 @@ export const SCHEMA_STATEMENTS = [
     receipt_photo_path TEXT,
     spent_at TEXT NOT NULL,
     recorded_by TEXT NOT NULL,
+    recorder_name TEXT,
     reverses_expense_id TEXT REFERENCES expenses(id),
     created_at TEXT NOT NULL,
     synced_at TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS expense_recorder_cache (
+    expense_id TEXT PRIMARY KEY REFERENCES expenses(id),
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    cached_at TEXT NOT NULL
   )`,
 ]

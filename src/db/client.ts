@@ -78,6 +78,12 @@ export async function initDb() {
       await db.execute("ALTER TABLE budget_categories ADD COLUMN description TEXT")
       console.log("Successfully migrated: added description to budget_categories table")
     }
+
+    const expenseTableInfo = await db.execute("PRAGMA table_info(expenses)")
+    const expenseColumns = expenseTableInfo.rows.map((r: any) => r.name)
+    if (expenseColumns.length > 0 && !expenseColumns.includes("recorder_name")) {
+      await db.execute("ALTER TABLE expenses ADD COLUMN recorder_name TEXT")
+    }
   } catch (e) {
     console.warn("Migration check warning:", e)
   }

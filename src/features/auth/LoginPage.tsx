@@ -30,6 +30,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [serverWaking, setServerWaking] = useState(false)
   const [quoteIndex, setQuoteIndex] = useState(0)
   const [fadeState, setFadeState] = useState<"in" | "out">("in")
 
@@ -45,8 +46,19 @@ export function LoginPage() {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    if (!submitting) {
+      setServerWaking(false)
+      return
+    }
+
+    const timer = window.setTimeout(() => setServerWaking(true), 5000)
+    return () => window.clearTimeout(timer)
+  }, [submitting])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setServerWaking(false)
     setSubmitting(true)
 
     try {
@@ -54,7 +66,11 @@ export function LoginPage() {
       toast.success(`Bon retour, ${user.name} !`)
     } catch (err) {
       if (isApiError(err)) {
-        if (err.status === 403) {
+        if (err.kind === "timeout") {
+          toast.error("Le serveur ne répond pas encore. Réessayez dans un instant.")
+        } else if (err.kind === "network") {
+          toast.error("Impossible de contacter le serveur — vérifiez votre connexion.")
+        } else if (err.status === 403) {
           // Deactivated account - longer duration (10s) and explicit message
           toast.error(err.message || "Compte désactivé. Veuillez contacter un administrateur.", {
             duration: 10000,
@@ -64,8 +80,7 @@ export function LoginPage() {
           toast.error(err.message || "Identifiants incorrects.")
         }
       } else {
-        // Network connection error
-        toast.error("Impossible de contacter le serveur — vérifiez votre connexion.")
+        toast.error("Une erreur inattendue est survenue. Réessayez.")
       }
     } finally {
       setSubmitting(false)
@@ -147,8 +162,17 @@ export function LoginPage() {
                 </div>
 
                 <Button type="submit" className="w-full mt-2" disabled={submitting}>
-                  {submitting ? "Connexion en cours…" : "Se connecter"}
+                  {submitting
+                    ? serverWaking
+                      ? "Connexion en cours… le serveur démarre"
+                      : "Connexion en cours…"
+                    : "Se connecter"}
                 </Button>
+                {submitting && serverWaking && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Le serveur peut prendre un moment à démarrer.
+                  </p>
+                )}
               </form>
             </CardContent>
           </Card>

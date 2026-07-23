@@ -1,6 +1,6 @@
 import { v4 as uuid } from "uuid"
 import { getDb } from "./client"
-import { api } from "@/lib/api"
+import { api, isApiError } from "@/lib/api"
 
 export interface Investor {
   id: string
@@ -200,6 +200,7 @@ export async function addCategory(name: string, description?: string): Promise<B
       finalDesc = apiCat.description ?? null
     }
   } catch (err) {
+    if (isApiError(err) && err.kind === "http") throw err
     console.warn("API creation for category failed, saving locally:", err)
   }
 
@@ -245,14 +246,14 @@ export async function listExpenses(): Promise<Expense[]> {
         description: e.description,
         spent_at: e.spentAt,
         recorded_by: e.recordedBy,
-        recorded_by_name: e.creator?.name || e.recordedBy,
+        recorded_by_name: e.recorder?.name ?? null,
         reverses_expense_id: e.reversesExpenseId ?? null,
       }))
 
       for (const e of apiExpenses) {
         await db.execute({
-          sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, reverses_expense_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, recorder_name, reverses_expense_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO NOTHING`,
           args: [
             e.id,
@@ -261,10 +262,20 @@ export async function listExpenses(): Promise<Expense[]> {
             e.description,
             e.spent_at,
             e.recorded_by,
+            e.recorded_by_name,
             e.reverses_expense_id,
             new Date().toISOString(),
           ],
         })
+
+        if (e.recorded_by_name) {
+          await db.execute({
+            sql: `INSERT INTO expense_recorder_cache (expense_id, user_id, name, cached_at)
+                  VALUES (?, ?, ?, ?)
+                  ON CONFLICT(expense_id) DO UPDATE SET user_id=excluded.user_id, name=excluded.name, cached_at=excluded.cached_at`,
+            args: [e.id, e.recorded_by, e.recorded_by_name, new Date().toISOString()],
+          })
+        }
       }
 
       return apiExpenses
@@ -275,10 +286,10 @@ export async function listExpenses(): Promise<Expense[]> {
 
   const res = await db.execute(`
     SELECT e.id, e.category_id, c.name as category_name, e.amount, e.description,
-           e.spent_at, e.recorded_by, i.name as recorded_by_name, e.reverses_expense_id
+           e.spent_at, e.recorded_by, COALESCE(r.name, e.recorder_name) as recorded_by_name, e.reverses_expense_id
     FROM expenses e
     JOIN budget_categories c ON c.id = e.category_id
-    LEFT JOIN investors i ON i.user_id = e.recorded_by OR i.id = e.recorded_by
+    LEFT JOIN expense_recorder_cache r ON r.expense_id = e.id
     ORDER BY e.spent_at DESC
   `)
   return res.rows as unknown as Expense[]
@@ -290,6 +301,7 @@ export async function addExpense(input: {
   description: string
   spentAt: string
   recordedBy: string // required — caller must pass the active user's id
+  recorderName: string
   receiptPhotoPath?: string | null
 }): Promise<void> {
   const db = getDb()
@@ -308,12 +320,13 @@ export async function addExpense(input: {
       expenseId = res.data.expense.id
     }
   } catch (err) {
+    if (isApiError(err) && err.kind === "http") throw err
     console.warn("API creation for expense failed, saving locally:", err)
   }
 
   await db.execute({
-    sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, receipt_photo_path, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    sql: `INSERT INTO expenses (id, category_id, amount, description, spent_at, recorded_by, recorder_name, receipt_photo_path, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO NOTHING`,
     args: [
       expenseId,
@@ -322,6 +335,7 @@ export async function addExpense(input: {
       input.description,
       input.spentAt,
       input.recordedBy,
+      input.recorderName,
       input.receiptPhotoPath ?? null,
       new Date().toISOString(),
     ],

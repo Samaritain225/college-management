@@ -8,6 +8,7 @@
 // the live token without creating a circular import between auth.tsx and api.ts.
 
 const DEFAULT_BASE_URL = "https://college-management-api-etgz.onrender.com/api/v1"
+export const REQUEST_TIMEOUT_MS = 30_000
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL ?? DEFAULT_BASE_URL
@@ -22,7 +23,8 @@ function getBaseUrl(): string {
 
 export interface ApiError {
   readonly name: "ApiError"
-  readonly status: number
+  readonly kind: "http" | "network" | "timeout"
+  readonly status: number | null
   readonly message: string
   /** True when the server rejected the token (expired or invalid). */
   readonly isUnauthorized: boolean
@@ -31,9 +33,20 @@ export interface ApiError {
 export function makeApiError(status: number, message: string): ApiError {
   return {
     name: "ApiError",
+    kind: "http",
     status,
     message,
     isUnauthorized: status === 401,
+  }
+}
+
+function makeTransportError(kind: "network" | "timeout", message: string): ApiError {
+  return {
+    name: "ApiError",
+    kind,
+    status: null,
+    message,
+    isUnauthorized: false,
   }
 }
 
@@ -91,50 +104,77 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${getBaseUrl()}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
+  const controller = new AbortController()
+  let didTimeout = false
+  const timeout = window.setTimeout(() => {
+    didTimeout = true
+    controller.abort()
+  }, REQUEST_TIMEOUT_MS)
 
-  if (!res.ok) {
-    // Refresh once, then retry the original authenticated request. Refresh
-    // itself is explicitly excluded so a rejected refresh cannot recurse.
-    if (
-      res.status === 401 &&
-      withAuth &&
-      retryOnUnauthorized &&
-      _recoverUnauthorized &&
-      (await _recoverUnauthorized())
-    ) {
-      return request<T>(method, path, body, {
-        withAuth: true,
-        retryOnUnauthorized: false,
-      })
-    }
+  try {
+    const res = await fetch(`${getBaseUrl()}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    })
 
-    // Try to extract the backend's message field; fall back to statusText.
-    let message = res.statusText
-    try {
-      const json = await res.json()
-      // AdonisJS typically returns { message: "..." } or { errors: [{message}] }
-      if (typeof json.message === "string") {
-        message = json.message
-      } else if (Array.isArray(json.errors) && json.errors[0]?.message) {
-        message = json.errors[0].message
+    if (!res.ok) {
+      // Refresh once, then retry the original authenticated request. Refresh
+      // itself is explicitly excluded so a rejected refresh cannot recurse.
+      if (
+        res.status === 401 &&
+        withAuth &&
+        retryOnUnauthorized &&
+        _recoverUnauthorized &&
+        (await _recoverUnauthorized())
+      ) {
+        return request<T>(method, path, body, {
+          withAuth: true,
+          retryOnUnauthorized: false,
+        })
       }
-    } catch {
-      // Response body wasn't JSON — keep statusText
+
+      // Try to extract the backend's message field; fall back to statusText.
+      let message = res.statusText
+      try {
+        const json = await res.json()
+        // AdonisJS typically returns { message: "..." } or { errors: [{message}] }
+        if (typeof json.message === "string") {
+          message = json.message
+        } else if (Array.isArray(json.errors) && json.errors[0]?.message) {
+          message = json.errors[0].message
+        }
+      } catch (err) {
+        if (didTimeout || (err instanceof DOMException && err.name === "AbortError")) {
+          throw err
+        }
+        // Response body wasn't JSON — keep statusText.
+      }
+      throw makeApiError(res.status, message)
     }
-    throw makeApiError(res.status, message)
-  }
 
-  // 204 No Content — return empty object cast to T
-  if (res.status === 204) {
-    return {} as T
-  }
+    // 204 No Content — return empty object cast to T
+    if (res.status === 204) {
+      return {} as T
+    }
 
-  return res.json() as Promise<T>
+    return (await res.json()) as T
+  } catch (err) {
+    if (isApiError(err)) throw err
+    if (didTimeout || (err instanceof DOMException && err.name === "AbortError")) {
+      throw makeTransportError(
+        "timeout",
+        "Le serveur met trop de temps à répondre. Réessayez dans un instant.",
+      )
+    }
+    throw makeTransportError(
+      "network",
+      "Impossible de contacter le serveur. Vérifiez votre connexion.",
+    )
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 // ---------------------------------------------------------------------------

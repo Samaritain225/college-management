@@ -107,6 +107,7 @@ export function ExpensesPage({
   const [fieldErrors, setFieldErrors] = useState<{
     category?: string
     amount?: string
+    spentAt?: string
     description?: string
     general?: string
   }>({})
@@ -186,22 +187,15 @@ export function ExpensesPage({
 
     const errors: typeof fieldErrors = {}
 
-    let activeCategoryId = categoryId === "new-category-placeholder" ? "" : categoryId
-    if (categoryId === "new-category-placeholder" || !activeCategoryId) {
+    const isCreatingNewCategory = categoryId === "new-category-placeholder"
+    let activeCategoryId = isCreatingNewCategory ? "" : categoryId
+    if (isCreatingNewCategory) {
       if (!newCategoryName.trim()) {
         errors.category = "Veuillez saisir le nom de la nouvelle catégorie."
-      } else {
-        try {
-          const cat = await addCategory(newCategoryName.trim(), newCategoryDesc.trim() || undefined)
-          activeCategoryId = cat.id
-        } catch (err) {
-          console.error(err)
-          errors.category = "Erreur lors de la création de la catégorie."
-        }
       }
     }
 
-    if (!activeCategoryId && !errors.category) {
+    if (!isCreatingNewCategory && !activeCategoryId && !errors.category) {
       errors.category = "Veuillez choisir ou créer une catégorie."
     }
 
@@ -216,6 +210,10 @@ export function ExpensesPage({
       errors.description = "Le motif ne doit pas dépasser 255 caractères."
     }
 
+    if (!spentAtDate || Number.isNaN(spentAtDate.getTime())) {
+      errors.spentAt = "Veuillez saisir une date valide."
+    }
+
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
       return
@@ -223,6 +221,14 @@ export function ExpensesPage({
 
     setIsSubmitting(true)
     try {
+      if (isCreatingNewCategory) {
+        const category = await addCategory(
+          newCategoryName.trim(),
+          newCategoryDesc.trim() || undefined,
+        )
+        activeCategoryId = category.id
+      }
+
       const dateObj = spentAtDate || new Date()
       await addExpense({
         categoryId: activeCategoryId,
@@ -230,6 +236,7 @@ export function ExpensesPage({
         description: description.trim(),
         spentAt: dateObj.toISOString(),
         recordedBy: user.id,
+        recorderName: user.name,
         receiptPhotoPath: receiptPhotoPath.trim() || undefined,
       })
 
@@ -817,6 +824,9 @@ export function ExpensesPage({
                     />
                   </PopoverContent>
                 </Popover>
+                {fieldErrors.spentAt && (
+                  <p className="text-xs text-negative font-medium">{fieldErrors.spentAt}</p>
+                )}
               </div>
             </div>
 
