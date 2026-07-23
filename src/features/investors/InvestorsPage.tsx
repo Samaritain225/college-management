@@ -26,10 +26,26 @@ import {
   addInvestor,
   updateInvestor,
   getInvestorStandings,
+  listContributions,
   type InvestorStanding,
+  type Contribution,
 } from "@/db/queries"
 import { toast } from "sonner"
-import { UserPlus, Pencil, X, Check, Link } from "lucide-react"
+import {
+  UserPlus,
+  Pencil,
+  X,
+  Check,
+  Link as LinkIcon,
+  Users,
+  Wallet,
+  Coins,
+  Scale,
+  Eye,
+  ArrowLeft,
+  Calendar,
+  Phone,
+} from "lucide-react"
 
 interface LinkableUser {
   id: string
@@ -39,12 +55,28 @@ interface LinkableUser {
   isActive: boolean
 }
 
-export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; dbReady: boolean }) {
+interface InvestorsPageProps {
+  onChange?: () => void
+  dbReady: boolean
+  onBreadcrumbChange?: (items: string[]) => void
+  backTrigger?: number
+}
+
+export function InvestorsPage({
+  onChange,
+  dbReady,
+  onBreadcrumbChange,
+  backTrigger,
+}: InvestorsPageProps) {
   const { user: me } = useAuth()
   const [standings, setStandings] = useState<InvestorStanding[]>([])
   const [users, setUsers] = useState<LinkableUser[]>([])
   const [showForm, setShowForm] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  // Detail view state
+  const [selectedInvestor, setSelectedInvestor] = useState<InvestorStanding | null>(null)
+  const [investorContribs, setInvestorContribs] = useState<Contribution[]>([])
 
   // Create form state
   const [createName, setCreateName] = useState("")
@@ -77,7 +109,6 @@ export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; db
       setUsers(data.data.users)
     } catch (err) {
       console.error("Failed to fetch users to link:", err)
-      // Non-fatal, just logs empty list
     }
   }
 
@@ -91,6 +122,35 @@ export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; db
       loadData()
     }
   }, [dbReady])
+
+  // Handle breadcrumb navigation & back button triggers
+  useEffect(() => {
+    if (backTrigger && backTrigger > 0) {
+      setSelectedInvestor(null)
+    }
+  }, [backTrigger])
+
+  useEffect(() => {
+    if (selectedInvestor) {
+      onBreadcrumbChange?.([`Fiche — ${selectedInvestor.name}`])
+    } else {
+      onBreadcrumbChange?.([])
+    }
+  }, [selectedInvestor, onBreadcrumbChange])
+
+  // Fetch contributions for selected investor when detail page is opened
+  useEffect(() => {
+    async function fetchContribs() {
+      if (!selectedInvestor) return
+      try {
+        const all = await listContributions()
+        setInvestorContribs(all.filter((c) => c.investor_id === selectedInvestor.id))
+      } catch (err) {
+        console.error("Failed to load investor contributions:", err)
+      }
+    }
+    fetchContribs()
+  }, [selectedInvestor])
 
   // ---------------------------------------------------------------------------
   // Create Investor
@@ -184,9 +244,14 @@ export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; db
   // Helpers
   // ---------------------------------------------------------------------------
 
-  function getLinkedAccountText(userId: string | null): string {
-    if (!userId) return "Pas d'accès"
-    const matched = users.find((u) => u.id === userId)
+  function getLinkedAccountText(standing: InvestorStanding): string {
+    if (!standing.user_id) return "Pas d'accès"
+    if (standing.user?.name || standing.user?.email) {
+      return standing.user.email
+        ? `${standing.user.name || "Utilisateur"} (${standing.user.email})`
+        : standing.user.name || "Utilisateur lié"
+    }
+    const matched = users.find((u) => u.id === standing.user_id)
     return matched ? `${matched.name} (${matched.email})` : "Utilisateur lié"
   }
 
@@ -198,6 +263,7 @@ export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; db
   const totalAgreed = standings.reduce((acc, curr) => acc + curr.agreed_contribution, 0)
   const totalPaid = standings.reduce((acc, curr) => acc + curr.paid, 0)
   const totalOwed = standings.reduce((acc, curr) => acc + curr.owed, 0)
+  const unpaidCount = standings.filter((s) => s.owed > 0).length
 
   if (!dbReady || loading) {
     return (
@@ -209,13 +275,13 @@ export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; db
           </div>
           <div className="h-9 w-32 bg-ink/10 rounded-md" />
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between py-4">
-          <div className="h-9 w-64 bg-ink/10 rounded-md" />
-          <div className="h-9 w-40 bg-ink/10 rounded-md" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="h-24 bg-ink/10 rounded-md" />
+          <div className="h-24 bg-ink/10 rounded-md" />
+          <div className="h-24 bg-ink/10 rounded-md" />
+          <div className="h-24 bg-ink/10 rounded-md" />
         </div>
         <div className="rounded-md border border-ink/10 bg-paper p-4 space-y-4">
-          <div className="h-6 bg-ink/10 rounded-sm w-full" />
-          <div className="h-6 bg-ink/10 rounded-sm w-full" />
           <div className="h-6 bg-ink/10 rounded-sm w-full" />
           <div className="h-6 bg-ink/10 rounded-sm w-full" />
           <div className="h-6 bg-ink/10 rounded-sm w-full" />
@@ -223,6 +289,201 @@ export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; db
       </div>
     )
   }
+
+  // ---------------------------------------------------------------------------
+  // Investor Details View Page
+  // ---------------------------------------------------------------------------
+
+  if (selectedInvestor) {
+    const isFullyPaid = selectedInvestor.owed <= 0
+    return (
+      <div className="mx-auto max-w-5xl p-4 sm:p-6 space-y-6">
+        {/* Back navigation & Actions Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <Button
+            variant="ghost"
+            onClick={() => setSelectedInvestor(null)}
+            className="w-fit flex items-center gap-2 text-xs font-display text-ink-soft hover:text-ink -ml-2"
+          >
+            <ArrowLeft className="size-4" />
+            Retour aux investisseurs
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                startEdit(selectedInvestor)
+                setSelectedInvestor(null)
+              }}
+              className="text-xs font-display flex items-center gap-1.5"
+            >
+              <Pencil className="size-3.5" />
+              Modifier l'investisseur
+            </Button>
+          </div>
+        </div>
+
+        {/* Profile Card Header */}
+        <Card className="border border-ink/10 bg-paper p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-teal-100 font-display text-xl font-bold text-teal-950 shrink-0">
+                {selectedInvestor.name.slice(0, 2).toUpperCase()}
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h1 className="font-display text-xl font-bold text-ink">{selectedInvestor.name}</h1>
+                  <Badge variant={isFullyPaid ? "positive" : "negative"}>
+                    {isFullyPaid ? "Libéré" : `Reste: ${formatMoney(selectedInvestor.owed)}`}
+                  </Badge>
+                </div>
+                <div className="text-xs text-ink-soft flex items-center gap-3 flex-wrap">
+                  {selectedInvestor.phone && (
+                    <span className="flex items-center gap-1">
+                      <Phone className="size-3" />
+                      {selectedInvestor.phone}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <Calendar className="size-3" />
+                    Inscrit le {new Date(selectedInvestor.joined_at).toLocaleDateString("fr-FR")}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Financial KPI Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
+          <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
+            <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Capital Convenu</p>
+            <h3 className="text-lg font-display font-bold text-ink mt-1">{formatMoney(selectedInvestor.agreed_contribution)}</h3>
+            <p className="text-[11px] text-ink-soft mt-1">Montant promis</p>
+          </Card>
+          <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
+            <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Total Libéré</p>
+            <h3 className="text-lg font-display font-bold text-positive mt-1">{formatMoney(selectedInvestor.paid)}</h3>
+            <p className="text-[11px] text-positive font-semibold mt-1">Contributions reçues</p>
+          </Card>
+          <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
+            <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Reste à Libérer</p>
+            <h3 className="text-lg font-display font-bold text-negative mt-1">{formatMoney(selectedInvestor.owed)}</h3>
+            <p className="text-[11px] text-terracotta-600 font-semibold mt-1">Solde dû</p>
+          </Card>
+          <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
+            <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Part du Capital</p>
+            <h3 className="text-lg font-display font-bold text-ink mt-1 font-mono">{selectedInvestor.ownership_pct.toFixed(1)}%</h3>
+            <p className="text-[11px] text-ink-soft mt-1">Part de l'enveloppe</p>
+          </Card>
+        </div>
+
+        {/* Detailed Info Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className="border border-ink/10 bg-paper p-6 space-y-4">
+            <h3 className="font-display font-semibold text-sm text-ink border-b border-ink/10 pb-2">Informations Générales</h3>
+            <div className="space-y-3 text-xs">
+              <div className="flex justify-between py-1 border-b border-ink/5">
+                <span className="text-ink-soft">Nom complet</span>
+                <span className="font-semibold text-ink">{selectedInvestor.name}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-ink/5">
+                <span className="text-ink-soft">Téléphone</span>
+                <span className="font-semibold text-ink">{selectedInvestor.phone || "Non renseigné"}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-ink/5">
+                <span className="text-ink-soft">Date d'inscription</span>
+                <span className="font-semibold text-ink">{new Date(selectedInvestor.joined_at).toLocaleDateString("fr-FR")}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-ink-soft">Identifiant système</span>
+                <span className="font-mono text-[11px] text-ink-soft">{selectedInvestor.id}</span>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="border border-ink/10 bg-paper p-6 space-y-4">
+            <h3 className="font-display font-semibold text-sm text-ink border-b border-ink/10 pb-2">Compte Utilisateur Lié</h3>
+            <div className="space-y-3 text-xs">
+              <div className="flex justify-between py-1 border-b border-ink/5">
+                <span className="text-ink-soft">Accès système</span>
+                <span>
+                  {selectedInvestor.user_id ? (
+                    <Badge variant="positive">Accès configuré</Badge>
+                  ) : (
+                    <Badge variant="secondary">Pas d'accès</Badge>
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-ink/5">
+                <span className="text-ink-soft">Compte associé</span>
+                <span className="font-semibold text-ink flex items-center gap-1.5">
+                  {selectedInvestor.user_id && <LinkIcon className="size-3.5 text-ink-soft/60" />}
+                  {getLinkedAccountText(selectedInvestor)}
+                </span>
+              </div>
+              {selectedInvestor.user?.email && (
+                <div className="flex justify-between py-1 border-b border-ink/5">
+                  <span className="text-ink-soft">Adresse E-mail</span>
+                  <span className="font-mono text-ink">{selectedInvestor.user.email}</span>
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {/* Contributions History Table */}
+        <Card className="border border-ink/10 bg-paper p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-display font-semibold text-sm text-ink">
+              Historique des versements ({investorContribs.length})
+            </h3>
+          </div>
+
+          <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-b border-ink/10">
+                    <TableHead className="text-xs font-display font-semibold text-ink-soft">Date</TableHead>
+                    <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Montant</TableHead>
+                    <TableHead className="text-xs font-display font-semibold text-ink-soft">Mode de paiement</TableHead>
+                    <TableHead className="text-xs font-display font-semibold text-ink-soft">Note / Libellé</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {investorContribs.map((c) => (
+                    <TableRow key={c.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
+                      <TableCell className="text-xs text-ink whitespace-nowrap">
+                        {new Date(c.paid_at).toLocaleDateString("fr-FR")}
+                      </TableCell>
+                      <TableCell className="text-xs font-display font-bold text-positive text-right whitespace-nowrap">
+                        +{formatMoney(c.amount)}
+                      </TableCell>
+                      <TableCell className="text-xs text-ink-soft capitalize">{c.method || "Virement"}</TableCell>
+                      <TableCell className="text-xs text-ink-soft">{c.note || "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                  {investorContribs.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center h-20 text-xs text-ink-soft italic">
+                        Aucun versement enregistré pour cet investisseur.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Main List View Page
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="mx-auto max-w-5xl p-4 sm:p-6 space-y-6">
@@ -235,8 +496,11 @@ export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; db
             {totalInvestors} {totalInvestors > 1 ? "associés" : "associé"} · total convenu: {formatMoney(totalAgreed)}
           </p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-2 font-display">
-          <UserPlus className="size-4" />
+        <Button
+          onClick={() => setShowForm((s) => !s)}
+          className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
+        >
+          <UserPlus className="size-4 shrink-0" />
           {showForm ? "Annuler" : "Nouvel investisseur"}
         </Button>
       </header>
@@ -308,196 +572,213 @@ export function InvestorsPage({ onChange, dbReady }: { onChange?: () => void; db
       )}
 
       {/* Financial stats */}
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-        <Card className="border border-ink/10 bg-paper">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-ink-soft text-xs uppercase tracking-wider font-display">Total Convenu</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="font-display text-xl font-bold text-ink">{formatMoney(totalAgreed)}</p>
-            <p className="text-xs text-ink-soft mt-1">Fonds promis par les associés</p>
-          </CardContent>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
+        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+          <div className="flex items-start justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Investisseurs</p>
+              <h3 className="text-lg font-display font-bold text-ink">{totalInvestors}</h3>
+            </div>
+            <div className="p-2 rounded-lg bg-teal-100 text-teal-950">
+              <Users className="size-4" />
+            </div>
+          </div>
+          <div className="pt-2 border-t border-ink/10 text-xs text-ink-soft font-display">
+            <span>{totalInvestors} {totalInvestors > 1 ? "associés inscrits" : "associé inscrit"}</span>
+          </div>
         </Card>
-        <Card className="border border-ink/10 bg-paper">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-ink-soft text-xs uppercase tracking-wider font-display">Total Libéré</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="font-display text-xl font-bold text-positive">{formatMoney(totalPaid)}</p>
-            <p className="text-xs text-ink-soft mt-1">Contributions reçues en banque</p>
-          </CardContent>
+
+        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+          <div className="flex items-start justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Capital Convenu</p>
+              <h3 className="text-lg font-display font-bold text-ink">{formatMoney(totalAgreed)}</h3>
+            </div>
+            <div className="p-2 rounded-lg bg-teal-100/60 text-teal-950">
+              <Wallet className="size-4" />
+            </div>
+          </div>
+          <div className="pt-2 border-t border-ink/10 text-xs text-ink-soft font-display">
+            <span>Engagement global</span>
+          </div>
         </Card>
-        <Card className="border border-ink/10 bg-paper">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-ink-soft text-xs uppercase tracking-wider font-display">Reste à Libérer</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="font-display text-xl font-bold text-negative">{formatMoney(totalOwed)}</p>
-            <p className="text-xs text-ink-soft mt-1">Dettes dues par les associés</p>
-          </CardContent>
+
+        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+          <div className="flex items-start justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Total Investi</p>
+              <h3 className="text-lg font-display font-bold text-positive">{formatMoney(totalPaid)}</h3>
+            </div>
+            <div className="p-2 rounded-lg bg-positive-bg text-positive">
+              <Coins className="size-4" />
+            </div>
+          </div>
+          <div className="pt-2 border-t border-ink/10 text-xs text-positive font-display font-semibold">
+            <span>{totalAgreed > 0 ? Math.round((totalPaid / totalAgreed) * 100) : 0}% du capital convenu</span>
+          </div>
+        </Card>
+
+        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+          <div className="flex items-start justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Reste à Libérer</p>
+              <h3 className="text-lg font-display font-bold text-negative">{formatMoney(totalOwed)}</h3>
+            </div>
+            <div className="p-2 rounded-lg bg-terracotta-100 text-terracotta-600">
+              <Scale className="size-4" />
+            </div>
+          </div>
+          <div className="pt-2 border-t border-ink/10 text-xs text-terracotta-600 font-display font-semibold">
+            <span>{unpaidCount > 0 ? `${unpaidCount} ${unpaidCount > 1 ? "associés en attente" : "associé en attente"}` : "Aucun solde dû"}</span>
+          </div>
         </Card>
       </div>
 
       {/* Investors List table */}
       <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
         <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-b border-ink/10">
-              <TableHead className="text-xs font-display font-semibold text-ink-soft">Nom</TableHead>
-              <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Téléphone</TableHead>
-              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Convenu</TableHead>
-              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right hidden sm:table-cell">Libéré</TableHead>
-              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Restant</TableHead>
-              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right hidden md:table-cell">Parts</TableHead>
-              <TableHead className="text-xs font-display font-semibold text-ink-soft hidden md:table-cell">Compte lié</TableHead>
-              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {standings.map((s) => {
-              const isEditing = editingId === s.id
-              return (
-                <TableRow key={s.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
-                  {/* Name */}
-                  <TableCell className="text-xs font-display font-semibold text-ink">
-                    {isEditing ? (
-                      <Input
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        className="h-8 text-xs w-44 border-ink/15 bg-paper text-ink"
-                      />
-                    ) : (
-                      <span className="font-display font-semibold text-ink whitespace-nowrap">{s.name}</span>
-                    )}
-                  </TableCell>
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-ink/10">
+                <TableHead className="text-xs font-display font-semibold text-ink-soft">Nom</TableHead>
+                <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Téléphone</TableHead>
+                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Convenu</TableHead>
+                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right hidden sm:table-cell">Libéré</TableHead>
+                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Restant</TableHead>
+                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right hidden md:table-cell">Parts</TableHead>
+                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {standings.map((s) => {
+                const isEditing = editingId === s.id
+                return (
+                  <TableRow key={s.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
+                    {/* Name */}
+                    <TableCell className="text-xs font-display font-semibold text-ink">
+                      {isEditing ? (
+                        <Input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="h-8 text-xs w-44 border-ink/15 bg-paper text-ink"
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setSelectedInvestor(s)}
+                          className="font-display font-semibold text-ink hover:text-teal-950 hover:underline text-left whitespace-nowrap"
+                        >
+                          {s.name}
+                        </button>
+                      )}
+                    </TableCell>
 
-                  {/* Phone */}
-                  <TableCell className="hidden sm:table-cell text-xs text-ink-soft">
-                    {isEditing ? (
-                      <Input
-                        value={editPhone}
-                        onChange={(e) => setEditPhone(e.target.value)}
-                        className="h-8 text-xs w-36 border-ink/15 bg-paper text-ink"
-                      />
-                    ) : (
-                      <span className="text-ink-soft text-xs">{s.phone || "—"}</span>
-                    )}
-                  </TableCell>
+                    {/* Phone */}
+                    <TableCell className="hidden sm:table-cell text-xs text-ink-soft">
+                      {isEditing ? (
+                        <Input
+                          value={editPhone}
+                          onChange={(e) => setEditPhone(e.target.value)}
+                          className="h-8 text-xs w-36 border-ink/15 bg-paper text-ink"
+                        />
+                      ) : (
+                        <span className="text-ink-soft text-xs">{s.phone || "—"}</span>
+                      )}
+                    </TableCell>
 
-                  {/* Agreed Contribution */}
-                  <TableCell className="text-right text-xs">
-                    {isEditing ? (
-                      <Input
-                        value={editContribution}
-                        onChange={(e) => setEditContribution(e.target.value)}
-                        className="h-8 text-xs text-right w-28 ml-auto border-ink/15 bg-paper text-ink"
-                      />
-                    ) : (
-                      <span className="text-ink text-xs font-display font-semibold">{formatMoney(s.agreed_contribution)}</span>
-                    )}
-                  </TableCell>
+                    {/* Agreed Contribution */}
+                    <TableCell className="text-right text-xs">
+                      {isEditing ? (
+                        <Input
+                          value={editContribution}
+                          onChange={(e) => setEditContribution(e.target.value)}
+                          className="h-8 text-xs text-right w-28 ml-auto border-ink/15 bg-paper text-ink"
+                        />
+                      ) : (
+                        <span className="text-ink text-xs font-display font-bold">{formatMoney(s.agreed_contribution)}</span>
+                      )}
+                    </TableCell>
 
-                  {/* Paid */}
-                  <TableCell className="text-right text-ink-soft text-xs hidden sm:table-cell whitespace-nowrap">
-                    {formatMoney(s.paid)}
-                  </TableCell>
+                    {/* Paid */}
+                    <TableCell className="text-right text-xs hidden sm:table-cell whitespace-nowrap">
+                      <span className="text-positive text-xs font-display font-bold">{formatMoney(s.paid)}</span>
+                    </TableCell>
 
-                  {/* Owed */}
-                  <TableCell className="text-right text-xs whitespace-nowrap">
-                    {s.owed > 0 ? (
-                      <span className="text-negative font-semibold text-xs">{formatMoney(s.owed)}</span>
-                    ) : (
-                      <Badge variant="positive">Libéré</Badge>
-                    )}
-                  </TableCell>
+                    {/* Owed */}
+                    <TableCell className="text-right text-xs whitespace-nowrap">
+                      {s.owed > 0 ? (
+                        <span className="text-negative font-display font-bold text-xs">{formatMoney(s.owed)}</span>
+                      ) : (
+                        <Badge variant="positive">Libéré</Badge>
+                      )}
+                    </TableCell>
 
-                  {/* Ownership Pct */}
-                  <TableCell className="text-right text-ink-soft text-xs hidden md:table-cell whitespace-nowrap">
-                    {s.ownership_pct.toFixed(1)}%
-                  </TableCell>
+                    {/* Ownership Pct */}
+                    <TableCell className="text-right text-ink-soft text-xs hidden md:table-cell whitespace-nowrap font-mono font-medium">
+                      {s.ownership_pct.toFixed(1)}%
+                    </TableCell>
 
-                  {/* Linked User Account */}
-                  <TableCell className="hidden md:table-cell text-xs">
-                    {isEditing ? (
-                      <Select value={editUserId} onValueChange={setEditUserId}>
-                        <SelectTrigger className="h-8 text-xs w-48 bg-paper border-ink/15 text-ink">
-                          <SelectValue placeholder="Lier un compte" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-paper border-ink/10">
-                          <SelectItem value="none">Aucun compte</SelectItem>
-                          {users.map((u) => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <div className="flex items-center gap-1.5 text-xs">
-                        {s.user_id ? (
+                    {/* Actions */}
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {isEditing ? (
                           <>
-                            <Link className="size-3.5 text-ink-soft/60" />
-                            <span className="text-ink font-medium">{getLinkedAccountText(s.user_id)}</span>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-positive hover:text-positive/80 hover:bg-teal-100/50"
+                              onClick={() => handleEdit(s.id)}
+                              disabled={editSubmitting}
+                              title="Enregistrer"
+                            >
+                              <Check className="size-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-ink-soft hover:text-teal-950 hover:bg-teal-100/50"
+                              onClick={cancelEdit}
+                              title="Annuler"
+                            >
+                              <X className="size-4" />
+                            </Button>
                           </>
                         ) : (
-                          <span className="text-ink-soft/50 italic">Pas d'accès</span>
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-ink-soft hover:text-teal-950 hover:bg-teal-100/50"
+                              onClick={() => setSelectedInvestor(s)}
+                              title="Voir la fiche détaillée"
+                            >
+                              <Eye className="size-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-ink-soft hover:text-teal-950 hover:bg-teal-100/50"
+                              onClick={() => startEdit(s)}
+                              title="Modifier"
+                            >
+                              <Pencil className="size-4" />
+                            </Button>
+                          </>
                         )}
                       </div>
-                    )}
-                  </TableCell>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
 
-                  {/* Actions */}
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {isEditing ? (
-                        <>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-positive hover:text-positive/80"
-                            onClick={() => handleEdit(s.id)}
-                            disabled={editSubmitting}
-                            title="Enregistrer"
-                          >
-                            <Check className="size-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={cancelEdit}
-                            title="Annuler"
-                          >
-                            <X className="size-4" />
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-ink-soft hover:text-ink"
-                          onClick={() => startEdit(s)}
-                          title="Modifier"
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                      )}
-                    </div>
+              {standings.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center h-24 text-ink-soft">
+                    <p className="text-sm font-display font-semibold text-ink">Aucun investisseur enregistré.</p>
                   </TableCell>
                 </TableRow>
-              )
-            })}
-
-            {standings.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center h-24 text-ink-soft">
-                  <p className="text-sm font-display font-semibold text-ink">Aucun investisseur enregistré.</p>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+              )}
+            </TableBody>
+          </Table>
         </div>
       </div>
     </div>

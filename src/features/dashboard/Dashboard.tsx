@@ -558,8 +558,8 @@ export function Dashboard({
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="md:col-span-2 border-ink/10 bg-paper">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+        <Card className="md:col-span-7 border-ink/10 bg-paper">
           <CardHeader>
             <CardTitle className="text-ink font-display font-semibold text-base">Répartition du budget</CardTitle>
           </CardHeader>
@@ -575,7 +575,11 @@ export function Dashboard({
           </CardContent>
         </Card>
 
-        <RecentActivities userActivities={userActivities} fallbackActivities={activities} />
+        <RecentActivities
+          className="md:col-span-5"
+          userActivities={userActivities}
+          fallbackActivities={activities}
+        />
       </div>
     </div>
   )

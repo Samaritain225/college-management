@@ -205,7 +205,12 @@ function AppShell() {
               )}
               {effectiveTab === "investors" && (
                 <RequireRole roles={["admin", "super_admin"]}>
-                  <InvestorsPage onChange={bump} dbReady={dbReady} />
+                  <InvestorsPage
+                    onChange={bump}
+                    dbReady={dbReady}
+                    onBreadcrumbChange={setSubBreadcrumbs}
+                    backTrigger={backTrigger}
+                  />
                 </RequireRole>
               )}
               {effectiveTab === "expenses" && (

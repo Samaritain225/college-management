@@ -9,14 +9,70 @@ export interface Investor {
   phone: string | null
   agreed_contribution: number
   joined_at: string
+  user?: {
+    name: string | null
+    email: string | null
+  } | null
 }
 
 // ---- Investors ------------------------------------------------------
 
 export async function listInvestors(): Promise<Investor[]> {
   const db = getDb()
+  try {
+    const res = await api.get<any>("/investors")
+    const rawList = res?.data?.investors ?? res?.investors ?? (Array.isArray(res?.data) ? res.data : null)
+
+    if (Array.isArray(rawList)) {
+      const apiInvestors: Investor[] = rawList.map((inv: any) => ({
+        id: inv.id,
+        user_id: inv.userId ?? null,
+        name: inv.name,
+        phone: inv.phone ?? null,
+        agreed_contribution: Number(inv.agreedContribution ?? 0),
+        joined_at: inv.joinedAt || inv.createdAt || new Date().toISOString(),
+        user: inv.user
+          ? {
+              name: inv.user.name ?? null,
+              email: inv.user.email ?? null,
+            }
+          : null,
+      }))
+
+      for (const inv of apiInvestors) {
+        try {
+          await db.execute({
+            sql: `INSERT INTO investors (id, user_id, name, phone, agreed_contribution, joined_at, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)
+                  ON CONFLICT(id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    name = excluded.name,
+                    phone = excluded.phone,
+                    agreed_contribution = excluded.agreed_contribution,
+                    joined_at = excluded.joined_at`,
+            args: [
+              inv.id,
+              inv.user_id,
+              inv.name,
+              inv.phone,
+              inv.agreed_contribution,
+              inv.joined_at,
+              new Date().toISOString(),
+            ],
+          })
+        } catch (dbErr) {
+          console.warn("Local DB sync for investor failed:", inv.id, dbErr)
+        }
+      }
+
+      return apiInvestors
+    }
+  } catch (err) {
+    console.warn("Failed to fetch investors from API, using local DB:", err)
+  }
+
   const res = await db.execute(
-    "SELECT id, user_id, name, phone, agreed_contribution, joined_at FROM investors ORDER BY joined_at ASC"
+    "SELECT id, user_id, name, phone, agreed_contribution, joined_at FROM investors ORDER BY name ASC"
   )
   return res.rows as unknown as Investor[]
 }
@@ -30,24 +86,51 @@ export async function addInvestor(input: {
   addedBy?: string
 }): Promise<Investor> {
   const db = getDb()
-  const id = uuid()
+  let id = uuid()
   const joinedAt = input.joinedAt || new Date().toISOString()
   const createdAt = new Date().toISOString()
 
-  await db.execute({
-    sql: `INSERT INTO investors (id, user_id, name, phone, agreed_contribution, joined_at, created_by, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [
-      id,
-      input.userId ?? null,
-      input.name,
-      input.phone ?? null,
-      input.agreedContribution,
+  try {
+    const res = await api.post<any>("/investors", {
+      name: input.name,
+      agreedContribution: input.agreedContribution,
       joinedAt,
-      input.addedBy ?? null,
-      createdAt,
-    ],
-  })
+      userId: input.userId ?? undefined,
+    })
+
+    const invData = res?.data?.investor ?? res?.investor ?? res?.data
+    if (invData?.id) {
+      id = invData.id
+    }
+  } catch (err) {
+    if (isApiError(err) && err.kind === "http") throw err
+    console.warn("API creation for investor failed, saving locally:", err)
+  }
+
+  try {
+    await db.execute({
+      sql: `INSERT INTO investors (id, user_id, name, phone, agreed_contribution, joined_at, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              user_id = excluded.user_id,
+              name = excluded.name,
+              phone = excluded.phone,
+              agreed_contribution = excluded.agreed_contribution,
+              joined_at = excluded.joined_at`,
+      args: [
+        id,
+        input.userId ?? null,
+        input.name,
+        input.phone ?? null,
+        input.agreedContribution,
+        joinedAt,
+        input.addedBy ?? null,
+        createdAt,
+      ],
+    })
+  } catch (dbErr) {
+    console.warn("Local DB execute for addInvestor failed:", dbErr)
+  }
 
   return {
     id,
@@ -69,24 +152,43 @@ export async function updateInvestor(
   }
 ): Promise<void> {
   const db = getDb()
-  await db.execute({
-    sql: `UPDATE investors 
-          SET name = ?, user_id = ?, agreed_contribution = ?, phone = ?, updated_at = ? 
-          WHERE id = ?`,
-    args: [
-      input.name,
-      input.userId ?? null,
-      input.agreedContribution,
-      input.phone ?? null,
-      new Date().toISOString(),
-      id,
-    ],
-  })
+
+  try {
+    await api.patch<any>(`/investors/${id}`, {
+      name: input.name,
+      agreedContribution: input.agreedContribution,
+    })
+  } catch (err) {
+    if (isApiError(err) && err.kind === "http") throw err
+    console.warn("API update for investor failed, updating locally:", err)
+  }
+
+  try {
+    await db.execute({
+      sql: `UPDATE investors 
+            SET name = ?, user_id = ?, agreed_contribution = ?, phone = ?, updated_at = ? 
+            WHERE id = ?`,
+      args: [
+        input.name,
+        input.userId ?? null,
+        input.agreedContribution,
+        input.phone ?? null,
+        new Date().toISOString(),
+        id,
+      ],
+    })
+  } catch (dbErr) {
+    console.warn("Local DB execute for updateInvestor failed:", dbErr)
+  }
 }
 
 // ---- Pool totals (derived, never stored statically) ------------------
 
 export async function getPoolTotal(): Promise<number> {
+  const investors = await listInvestors()
+  if (investors.length > 0) {
+    return investors.reduce((sum, inv) => sum + inv.agreed_contribution, 0)
+  }
   const db = getDb()
   const res = await db.execute("SELECT COALESCE(SUM(agreed_contribution), 0) as total FROM investors")
   return Number(res.rows?.[0]?.total ?? 0)
@@ -129,23 +231,36 @@ export interface InvestorStanding extends Investor {
 }
 
 export async function getInvestorStandings(): Promise<InvestorStanding[]> {
+  const apiInvestors = await listInvestors()
   const db = getDb()
-  const pool = await getPoolTotal()
-  const res = await db.execute(`
-    SELECT i.id, i.user_id, i.name, i.phone, i.agreed_contribution, i.joined_at,
-           COALESCE(SUM(c.amount), 0) as paid
-    FROM investors i
-    LEFT JOIN contributions c ON c.investor_id = i.id
-    GROUP BY i.id, i.user_id, i.name, i.phone, i.agreed_contribution, i.joined_at
-    ORDER BY i.joined_at ASC
-  `)
 
-  return (res.rows as unknown as (Investor & { paid: number })[]).map((row) => ({
-    ...row,
-    paid: Number(row.paid),
-    owed: row.agreed_contribution - Number(row.paid),
-    ownership_pct: pool > 0 ? (row.agreed_contribution / pool) * 100 : 0,
-  }))
+  let paidMap = new Map<string, number>()
+  try {
+    const res = await db.execute(`
+      SELECT investor_id, COALESCE(SUM(amount), 0) as paid
+      FROM contributions
+      GROUP BY investor_id
+    `)
+    for (const row of res.rows as any[]) {
+      paidMap.set(String(row.investor_id), Number(row.paid))
+    }
+  } catch (err) {
+    console.warn("Failed to fetch contribution sums for investors:", err)
+  }
+
+  const pool = apiInvestors.reduce((sum, inv) => sum + inv.agreed_contribution, 0)
+
+  return apiInvestors.map((inv) => {
+    const paid = paidMap.get(inv.id) ?? 0
+    const owed = Math.max(0, inv.agreed_contribution - paid)
+    const ownership_pct = pool > 0 ? (inv.agreed_contribution / pool) * 100 : 0
+    return {
+      ...inv,
+      paid,
+      owed,
+      ownership_pct,
+    }
+  })
 }
 
 // ---- Budget categories -------------------------------------------------

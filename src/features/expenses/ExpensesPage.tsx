@@ -433,8 +433,11 @@ export function ExpensesPage({
               </span>
             </Button>
           ) : (
-            <Button onClick={handleOpenCreateCategoryDialog} className="flex items-center gap-1.5 font-display">
-              <FolderPlus className="size-4" />
+            <Button
+              onClick={handleOpenCreateCategoryDialog}
+              className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
+            >
+              <FolderPlus className="size-4 shrink-0" />
               Nouvelle catégorie
             </Button>
           )}
