@@ -413,3 +413,34 @@ export async function getRecentActivities(): Promise<Activity[]> {
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 5)
 }
+
+export interface UserActivityLog {
+  id: string
+  userId: string | null
+  userName: string
+  action: string
+  createdAt: string
+  metadata: Record<string, any> | null
+}
+
+export async function listUserActivities(): Promise<UserActivityLog[]> {
+  try {
+    const res = await api.get<{ data: { activities: any[] } }>("/activities")
+    if (res?.data?.activities) {
+      return res.data.activities
+        .filter((act: any) => !act.action.startsWith("AUTH_"))
+        .map((act: any) => ({
+          id: act.id,
+          userId: act.userId ?? null,
+          userName: act.userName ?? act.user?.name ?? act.metadata?.actorName ?? "Utilisateur",
+          action: act.action,
+          createdAt: act.createdAt,
+          metadata: act.metadata ?? null,
+        }))
+    }
+  } catch (err) {
+    console.warn("Failed to fetch user activities from API:", err)
+  }
+  return []
+}
+

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { BudgetBar, type CategorySpend } from "./BudgetBar"
+import { RecentActivities } from "./RecentActivities"
 import { formatMoney } from "@/lib/utils"
 import { useAuth } from "@/lib/auth"
 import {
@@ -10,13 +11,15 @@ import {
   getTotalSpent,
   getSpentByCategory,
   getRecentActivities,
+  listUserActivities,
   listExpenses,
   listContributions,
   type Activity,
   type Contribution,
   type Expense,
+  type UserActivityLog,
 } from "@/db/queries"
-import { Sun, Moon, TrendingUp, TrendingDown, Clock, Venus, Mars, Wallet, Coins, Scale, CreditCard, Calendar } from "lucide-react"
+import { Sun, Moon, Venus, Mars, Wallet, Coins, Scale, CreditCard, Calendar } from "lucide-react"
 
 const PALETTE = ["bg-teal-950", "bg-terracotta-600", "bg-positive", "bg-teal-900", "bg-ink-soft"]
 
@@ -67,6 +70,7 @@ export function Dashboard({
   const [baseSpent, setBaseSpent] = useState(0)
   const [byCategory, setByCategory] = useState<CategorySpend[]>([])
   const [activities, setActivities] = useState<Activity[]>([])
+  const [userActivities, setUserActivities] = useState<UserActivityLog[]>([])
   const [loading, setLoading] = useState(true)
 
   const [allContribs, setAllContribs] = useState<Contribution[]>([])
@@ -105,12 +109,13 @@ export function Dashboard({
 
     async function load() {
       try {
-        const [p, c, s, cats, acts, contribs, exps] = await Promise.all([
+        const [p, c, s, cats, acts, userActs, contribs, exps] = await Promise.all([
           getPoolTotal(),
           getTotalContributed(),
           getTotalSpent(),
           getSpentByCategory(),
           getRecentActivities(),
+          listUserActivities(),
           listContributions(),
           listExpenses(),
         ])
@@ -119,6 +124,7 @@ export function Dashboard({
         setBaseSpent(s)
         setByCategory(cats.map((cat, i) => ({ ...cat, color: PALETTE[i % PALETTE.length] })))
         setActivities(acts)
+        setUserActivities(userActs)
         setAllContribs(contribs)
         setAllExps(exps)
       } catch (err) {
@@ -569,49 +575,7 @@ export function Dashboard({
           </CardContent>
         </Card>
 
-        <Card className="border-ink/10 bg-paper">
-          <CardHeader>
-            <CardTitle className="text-ink font-display font-semibold text-base flex items-center gap-2">
-              <Clock className="size-4 text-ink-soft" />
-              Activités récentes
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-6 pb-6 pt-0">
-            {activities.length > 0 ? (
-              <div className="relative border-l border-ink/10 pl-4 space-y-4">
-                {activities.map((act) => {
-                  const isContrib = act.type === "contribution"
-                  return (
-                    <div key={act.id} className="relative group">
-                      <span className={`absolute -left-[25px] top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-ink/10 bg-paper ${isContrib ? "text-positive" : "text-terracotta-600"}`}>
-                        {isContrib ? (
-                          <TrendingUp className="size-3" />
-                        ) : (
-                          <TrendingDown className="size-3" />
-                        )}
-                      </span>
-                      <div className="flex flex-col space-y-0.5">
-                        <p className="text-xs font-display font-semibold text-ink leading-tight">
-                          {act.title}
-                        </p>
-                        <p className="text-xs text-ink-soft leading-none">
-                          {act.subtitle}
-                        </p>
-                        <span className={`text-xs font-bold font-mono mt-1 ${isContrib ? "text-positive" : "text-terracotta-600"}`}>
-                          {isContrib ? "+" : "-"} {formatMoney(act.amount)}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="text-xs text-ink-soft text-center py-6">
-                Aucune activité enregistrée.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <RecentActivities userActivities={userActivities} fallbackActivities={activities} />
       </div>
     </div>
   )
