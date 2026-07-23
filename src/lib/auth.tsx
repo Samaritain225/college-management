@@ -2,7 +2,8 @@
 //
 // Token persistence strategy
 // ---------------------------
-// We use localStorage with the key `college-budget:auth-token`.
+// We use localStorage for the access token, refresh token, token issue time,
+// and cached user. The Tauri Store/Stronghold migration has not happened yet.
 //
 // In the Tauri desktop build, the WebView's localStorage lives in the app's
 // sandboxed local data directory (OS-managed, per-device). It is NOT part of
@@ -32,7 +33,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { api, isApiError, setTokenGetter } from "@/lib/api"
+import { api, isApiError, setTokenGetter, setUnauthorizedRecovery } from "@/lib/api"
 import { LoginPage } from "@/features/auth/LoginPage"
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,11 @@ interface MeResponse {
   }
 }
 
+interface RefreshResponse {
+  accessToken: string
+  refreshToken: string
+}
+
 export type AuthStatus = "checking" | "authenticated" | "unauthenticated"
 
 // ---------------------------------------------------------------------------
@@ -97,7 +103,11 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 // ---------------------------------------------------------------------------
 
 const TOKEN_KEY = "college-budget:auth-token"
+const REFRESH_TOKEN_KEY = "college-budget:refresh-token"
+const ACCESS_TOKEN_ISSUED_AT_KEY = "college-budget:access-token-issued-at"
 const USER_KEY = "college-budget:auth-user"
+const DAY_MS = 24 * 60 * 60 * 1000
+const ACCESS_TOKEN_REFRESH_AFTER_MS = 6 * DAY_MS
 
 function readPersistedToken(): string | null {
   try {
@@ -113,6 +123,48 @@ function writePersistedToken(token: string | null): void {
       localStorage.setItem(TOKEN_KEY, token)
     } else {
       localStorage.removeItem(TOKEN_KEY)
+    }
+  } catch {
+    // Storage unavailable
+  }
+}
+
+function readPersistedRefreshToken(): string | null {
+  try {
+    return localStorage.getItem(REFRESH_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writePersistedRefreshToken(token: string | null): void {
+  try {
+    if (token) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, token)
+    } else {
+      localStorage.removeItem(REFRESH_TOKEN_KEY)
+    }
+  } catch {
+    // Storage unavailable
+  }
+}
+
+function readPersistedAccessTokenIssuedAt(): number | null {
+  try {
+    const value = localStorage.getItem(ACCESS_TOKEN_ISSUED_AT_KEY)
+    const timestamp = value ? Number(value) : Number.NaN
+    return Number.isFinite(timestamp) ? timestamp : null
+  } catch {
+    return null
+  }
+}
+
+function writePersistedAccessTokenIssuedAt(timestamp: number | null): void {
+  try {
+    if (timestamp) {
+      localStorage.setItem(ACCESS_TOKEN_ISSUED_AT_KEY, String(timestamp))
+    } else {
+      localStorage.removeItem(ACCESS_TOKEN_ISSUED_AT_KEY)
     }
   } catch {
     // Storage unavailable
@@ -163,20 +215,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Keep a ref so the token getter registered with api.ts always reads the
   // latest value without stale-closure issues.
   const tokenRef = useRef<string | null>(null)
+  const refreshTokenRef = useRef<string | null>(null)
+  const accessTokenIssuedAtRef = useRef<number | null>(null)
+  const refreshInFlightRef = useRef<Promise<boolean> | null>(null)
 
   // Provisional offline state: token exists but /auth/me could not be reached.
   const [provisional, setProvisional] = useState(false)
 
-  // Register the token getter once at mount so api.ts can inject the
-  // Authorization header without importing from auth.tsx (avoids circular dep).
-  useEffect(() => {
-    setTokenGetter(() => tokenRef.current)
+  const clearSession = useCallback(() => {
+    writePersistedToken(null)
+    writePersistedRefreshToken(null)
+    writePersistedAccessTokenIssuedAt(null)
+    writePersistedUser(null)
+    tokenRef.current = null
+    refreshTokenRef.current = null
+    accessTokenIssuedAtRef.current = null
+    setToken(null)
+    setUser(null)
+    setStatus("unauthenticated")
+    setProvisional(false)
   }, [])
 
-  // Keep the ref in sync with state.
+  const persistTokenPair = useCallback((accessToken: string, refreshToken: string) => {
+    const issuedAt = Date.now()
+    writePersistedToken(accessToken)
+    writePersistedRefreshToken(refreshToken)
+    writePersistedAccessTokenIssuedAt(issuedAt)
+    tokenRef.current = accessToken
+    refreshTokenRef.current = refreshToken
+    accessTokenIssuedAtRef.current = issuedAt
+    setToken(accessToken)
+  }, [])
+
+  const refreshSession = useCallback(async (): Promise<boolean> => {
+    const currentRefreshToken = refreshTokenRef.current
+    if (!currentRefreshToken) {
+      clearSession()
+      return false
+    }
+
+    if (refreshInFlightRef.current) {
+      return refreshInFlightRef.current
+    }
+
+    const refreshAttempt = (async () => {
+      try {
+        const data = await api.postPublic<RefreshResponse>("/auth/refresh", {
+          refreshToken: currentRefreshToken,
+        })
+        persistTokenPair(data.accessToken, data.refreshToken)
+        setStatus("authenticated")
+        setProvisional(false)
+        return true
+      } catch (err) {
+        // A rejected refresh token requires a real login. Network failures do
+        // not erase the cached session, preserving offline-first behaviour.
+        if (isApiError(err) && err.isUnauthorized) {
+          clearSession()
+        }
+        return false
+      } finally {
+        refreshInFlightRef.current = null
+      }
+    })()
+
+    refreshInFlightRef.current = refreshAttempt
+    return refreshAttempt
+  }, [clearSession, persistTokenPair])
+
+  // Register the live token getter and 401 recovery path without importing
+  // AuthProvider from api.ts (which would create a circular dependency).
   useEffect(() => {
-    tokenRef.current = token
-  }, [token])
+    setTokenGetter(() => tokenRef.current)
+    setUnauthorizedRecovery(refreshSession)
+    return () => setUnauthorizedRecovery(null)
+  }, [refreshSession])
 
   // -------------------------------------------------------------------------
   // Silent session restore at launch
@@ -197,14 +310,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProvisional(false)
       } catch (err) {
         if (isApiError(err) && err.isUnauthorized) {
-          // Token is dead — require fresh login.
-          writePersistedToken(null)
-          writePersistedUser(null)
-          tokenRef.current = null
-          setToken(null)
-          setUser(null)
-          setStatus("unauthenticated")
-          setProvisional(false)
+          // The API client already attempted one refresh. Both tokens are no
+          // longer usable, so require a fresh login.
+          clearSession()
         } else {
           // Network error — operate in provisional offline mode.
           // Set the token so future API calls have the header, and keep
@@ -215,13 +323,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [],
+    [clearSession],
   )
 
   useEffect(() => {
     const storedToken = readPersistedToken()
+    const storedRefreshToken = readPersistedRefreshToken()
+    const storedIssuedAt = readPersistedAccessTokenIssuedAt()
     const storedUser = readPersistedUser()
     if (storedToken) {
+      tokenRef.current = storedToken
+      refreshTokenRef.current = storedRefreshToken
+      accessTokenIssuedAtRef.current = storedIssuedAt
       setToken(storedToken)
       setUser(storedUser)
       setStatus("authenticated")
@@ -230,6 +343,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus("unauthenticated")
     }
   }, [fullRestore])
+
+  // Refresh in the background after six days, one day before the fixed
+  // seven-day access-token expiry. Sessions created before this metadata was
+  // added refresh once on launch when a refresh token is available.
+  useEffect(() => {
+    if (!token || !refreshTokenRef.current) return
+
+    const issuedAt = accessTokenIssuedAtRef.current
+    const age = issuedAt ? Date.now() - issuedAt : ACCESS_TOKEN_REFRESH_AFTER_MS
+    const delay = Math.max(0, ACCESS_TOKEN_REFRESH_AFTER_MS - age)
+    const timer = window.setTimeout(() => {
+      void refreshSession()
+    }, delay)
+
+    return () => window.clearTimeout(timer)
+  }, [refreshSession, token])
 
   // -------------------------------------------------------------------------
   // Retry /auth/me when connectivity returns (provisional mode)
@@ -248,13 +377,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProvisional(false)
       } catch (err) {
         if (isApiError(err) && err.isUnauthorized) {
-          // Token expired while offline — force login.
-          writePersistedToken(null)
-          writePersistedUser(null)
-          setToken(null)
-          setUser(null)
-          setStatus("unauthenticated")
-          setProvisional(false)
+          // The API client already attempted one refresh before this point.
+          clearSession()
         }
         // Still offline — do nothing, keep provisional
       }
@@ -262,7 +386,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     window.addEventListener("online", handleOnline)
     return () => window.removeEventListener("online", handleOnline)
-  }, [provisional])
+  }, [clearSession, provisional])
 
   // -------------------------------------------------------------------------
   // login / logout
@@ -270,21 +394,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     setError(null)
-    const data = await api.post<LoginResponse>("/auth/login", {
+    const data = await api.postPublic<LoginResponse>("/auth/login", {
       email,
       password,
     })
-    const newToken = data.data.accessToken
     const mappedUser = mapApiUserToAuthUser(data.data.user)
-    writePersistedToken(newToken)
     writePersistedUser(mappedUser)
-    tokenRef.current = newToken
-    setToken(newToken)
+    persistTokenPair(data.data.accessToken, data.data.refreshToken)
     setUser(mappedUser)
     setStatus("authenticated")
     setProvisional(false)
     return mappedUser
-  }, [])
+  }, [persistTokenPair])
 
   const logout = useCallback(async () => {
     // Best-effort server-side logout — don't block on failure.
@@ -293,14 +414,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore — local state is cleared regardless.
     }
-    writePersistedToken(null)
-    writePersistedUser(null)
-    tokenRef.current = null
-    setToken(null)
-    setUser(null)
-    setStatus("unauthenticated")
-    setProvisional(false)
-  }, [])
+    clearSession()
+  }, [clearSession])
 
   // -------------------------------------------------------------------------
   // Derived: is the session considered "valid enough to render the app"?

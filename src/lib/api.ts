@@ -50,12 +50,22 @@ export function isApiError(err: unknown): err is ApiError {
 // ---------------------------------------------------------------------------
 
 type TokenGetter = () => string | null
+type UnauthorizedRecovery = () => Promise<boolean>
 
 let _getToken: TokenGetter = () => null
+let _recoverUnauthorized: UnauthorizedRecovery | null = null
 
 /** Called once by AuthProvider at mount time. */
 export function setTokenGetter(fn: TokenGetter): void {
   _getToken = fn
+}
+
+/**
+ * Called by AuthProvider to install the single-flight refresh flow used after
+ * an authenticated request receives a 401.
+ */
+export function setUnauthorizedRecovery(fn: UnauthorizedRecovery | null): void {
+  _recoverUnauthorized = fn
 }
 
 // ---------------------------------------------------------------------------
@@ -66,8 +76,11 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  options: { withAuth?: boolean; retryOnUnauthorized?: boolean } = {},
 ): Promise<T> {
-  const token = _getToken()
+  const withAuth = options.withAuth ?? true
+  const retryOnUnauthorized = options.retryOnUnauthorized ?? true
+  const token = withAuth ? _getToken() : null
 
   const headers: HeadersInit = {
     "Content-Type": "application/json",
@@ -85,6 +98,21 @@ async function request<T>(
   })
 
   if (!res.ok) {
+    // Refresh once, then retry the original authenticated request. Refresh
+    // itself is explicitly excluded so a rejected refresh cannot recurse.
+    if (
+      res.status === 401 &&
+      withAuth &&
+      retryOnUnauthorized &&
+      _recoverUnauthorized &&
+      (await _recoverUnauthorized())
+    ) {
+      return request<T>(method, path, body, {
+        withAuth: true,
+        retryOnUnauthorized: false,
+      })
+    }
+
     // Try to extract the backend's message field; fall back to statusText.
     let message = res.statusText
     try {
@@ -119,6 +147,13 @@ export const api = {
   },
   post<T>(path: string, body?: unknown): Promise<T> {
     return request<T>("POST", path, body)
+  },
+  /** Used by login and refresh flows, which must never attach a bearer token. */
+  postPublic<T>(path: string, body?: unknown): Promise<T> {
+    return request<T>("POST", path, body, {
+      withAuth: false,
+      retryOnUnauthorized: false,
+    })
   },
   patch<T>(path: string, body?: unknown): Promise<T> {
     return request<T>("PATCH", path, body)
