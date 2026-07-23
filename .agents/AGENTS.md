@@ -29,3 +29,14 @@
 ## 5. Appwrite Storage Authentication
 
 - **Security Masking (404s)**: Appwrite Storage returns a `404 storage_file_not_found` error for authorization or permission failures instead of a `403` to prevent ID enumeration. Always ensure requests to download or view files include the necessary headers (`X-Appwrite-Project`, `X-Appwrite-JWT`) or active session cookies.
+
+## 6. Datatable Design & Component Conventions
+
+All data tables across the application (expenses, categories, investors, users, teachers, students, classes) MUST strictly adhere to the standardized datatable design pattern:
+- **Container**: Wrapped in `<div className="rounded-md border border-ink/10 bg-paper overflow-hidden"><div className="overflow-x-auto">`
+- **Header**: `<TableHeader><TableRow className="border-b border-ink/10">` with `<TableHead className="text-xs font-display font-semibold text-ink-soft">`
+- **Body Rows**: `<TableRow className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">`
+- **Data Cells**: All data cells must use `text-xs`. Primary names/identifiers use `font-display font-semibold text-ink`, subtext uses `text-ink-soft`, and financial figures use `formatMoney(amount)` with `font-display font-bold text-ink`.
+- **Action Buttons**: Standardized to `h-8 w-8 text-ink-soft hover:text-teal-950 hover:bg-teal-100/50`.
+- **Responsive Hiding**: Non-essential columns must use `hidden sm:table-cell` or `hidden md:table-cell`.
+

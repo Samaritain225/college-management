@@ -89,13 +89,13 @@ export async function updateInvestor(
 export async function getPoolTotal(): Promise<number> {
   const db = getDb()
   const res = await db.execute("SELECT COALESCE(SUM(agreed_contribution), 0) as total FROM investors")
-  return Number(res.rows[0].total)
+  return Number(res.rows?.[0]?.total ?? 0)
 }
 
 export async function getTotalContributed(): Promise<number> {
   const db = getDb()
   const res = await db.execute("SELECT COALESCE(SUM(amount), 0) as total FROM contributions")
-  return Number(res.rows[0].total)
+  return Number(res.rows?.[0]?.total ?? 0)
 }
 
 export interface Contribution {
@@ -345,7 +345,7 @@ export async function addExpense(input: {
 export async function getTotalSpent(): Promise<number> {
   const db = getDb()
   const res = await db.execute("SELECT COALESCE(SUM(amount), 0) as total FROM expenses")
-  return Number(res.rows[0].total)
+  return Number(res.rows?.[0]?.total ?? 0)
 }
 
 export async function getSpentByCategory(): Promise<{ name: string; amount: number }[]> {

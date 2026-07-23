@@ -333,7 +333,7 @@ export function UsersPage({
           <Button
             variant="ghost"
             onClick={() => setSelectedUserId(null)}
-            className="mb-6 flex items-center gap-2 hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+            className="mb-6 flex items-center gap-2 hover:bg-teal-100/50 text-ink-soft hover:text-ink font-display"
           >
             <ArrowLeft className="size-4" />
             Retour à la liste
@@ -342,17 +342,17 @@ export function UsersPage({
 
         <div className="space-y-6">
           {/* Header Card */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-card p-6 border border-border rounded-xl shadow-xs">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-paper p-6 border border-ink/10 rounded-xl shadow-xs">
             <div className="flex items-center gap-4">
               <div className="flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-lg">
                 {detailUser.name.charAt(0).toUpperCase()}
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-bold text-foreground">{detailUser.name}</h2>
+                  <h2 className="text-xl font-bold text-ink">{detailUser.name}</h2>
                   {isMe && <Badge variant="neutral">Vous</Badge>}
                 </div>
-                <p className="text-xs text-muted-foreground">{detailUser.email}</p>
+                <p className="text-xs text-ink-soft">{detailUser.email}</p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -366,9 +366,9 @@ export function UsersPage({
           </div>
 
           {/* Form details */}
-          <Card>
-            <CardHeader className="border-b border-border/40 pb-4">
-              <CardTitle className="text-foreground font-semibold text-base">
+          <Card className="border border-ink/10 bg-paper">
+            <CardHeader className="border-b border-ink/10 pb-4">
+              <CardTitle className="text-ink font-semibold text-base">
                 {isAdmin ? "Éditer le profil" : "Détails du compte"}
               </CardTitle>
             </CardHeader>
@@ -377,7 +377,7 @@ export function UsersPage({
                 <div className="grid gap-4 sm:grid-cols-2">
                   {/* Nom complet */}
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="ed-name" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+                    <Label htmlFor="ed-name" className="text-xs text-ink-soft font-semibold flex items-center gap-1.5">
                       <User className="size-3.5" /> Nom complet
                     </Label>
                     <Input
@@ -385,13 +385,14 @@ export function UsersPage({
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       disabled={!isAdmin}
+                      className="border-ink/15 bg-paper text-ink"
                       required
                     />
                   </div>
 
                   {/* Email */}
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="ed-email" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+                    <Label htmlFor="ed-email" className="text-xs text-ink-soft font-semibold flex items-center gap-1.5">
                       <Mail className="size-3.5" /> Adresse email
                     </Label>
                     <Input
@@ -400,14 +401,15 @@ export function UsersPage({
                       value={editEmail}
                       onChange={(e) => setEditEmail(e.target.value)}
                       disabled={!isAdmin}
+                      className="border-ink/15 bg-paper text-ink"
                       required
                     />
                   </div>
 
                   {/* Phone */}
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="ed-phone" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
-                      <Phone className="size-3.5" /> Téléphone
+                    <Label htmlFor="ed-phone" className="text-xs text-ink-soft font-semibold flex items-center gap-1.5">
+                    <Phone className="size-3.5" /> Téléphone
                     </Label>
                     <Input
                       id="ed-phone"
@@ -420,12 +422,12 @@ export function UsersPage({
 
                   {/* Role selection */}
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="ed-role" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
-                      <ShieldAlert className="size-3.5" /> Rôle affecté
+                    <Label htmlFor="ed-role" className="text-xs text-ink-soft font-semibold flex items-center gap-1.5">
+                    <ShieldAlert className="size-3.5" /> Rôle affecté
                     </Label>
                     {isAdmin && !isSuperAdmin ? (
                       <Select value={editRole} onValueChange={setEditRole}>
-                        <SelectTrigger id="ed-role" className="bg-white">
+                        <SelectTrigger id="ed-role" className="bg-paper">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -448,7 +450,7 @@ export function UsersPage({
                   {/* Password change (Admin Only) */}
                   {isAdmin && (
                     <div className="flex flex-col gap-1.5 sm:col-span-2">
-                      <Label htmlFor="ed-pass" className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+                      <Label htmlFor="ed-pass" className="text-xs text-ink-soft font-semibold flex items-center gap-1.5">
                         <Lock className="size-3.5" /> Réinitialiser le mot de passe (facultatif)
                       </Label>
                       <Input
@@ -463,13 +465,13 @@ export function UsersPage({
                 </div>
 
                 {/* Metadata creation date */}
-                <div className="pt-4 border-t border-border/40 text-xs text-muted-foreground/80 flex items-center gap-1.5">
+                <div className="pt-4 border-t border-ink/10 text-xs text-ink-soft/70 flex items-center gap-1.5">
                   <Calendar className="size-3.5" /> Compte créé le {new Date(detailUser.createdAt).toLocaleString()}
                 </div>
 
                 {/* Action buttons */}
                 {isAdmin && (
-                  <div className="pt-4 border-t border-border flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+                  <div className="pt-4 border-t border-ink/10 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
                     {/* Deactivate Button */}
                     <div>
                       {!isSuperAdmin && (
@@ -516,21 +518,21 @@ export function UsersPage({
       <div className="mx-auto max-w-5xl px-6 py-8 animate-pulse space-y-6">
         <div className="flex items-center justify-between">
           <div className="space-y-2">
-            <div className="h-7 w-48 bg-muted rounded-md" />
-            <div className="h-4 w-64 bg-muted rounded-md" />
+            <div className="h-7 w-48 bg-ink/10 rounded-md" />
+            <div className="h-4 w-64 bg-ink/10 rounded-md" />
           </div>
-          <div className="h-9 w-32 bg-muted rounded-md" />
+          <div className="h-9 w-32 bg-ink/10 rounded-md" />
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between py-4">
-          <div className="h-9 w-64 bg-muted rounded-md" />
-          <div className="h-9 w-40 bg-muted rounded-md" />
+          <div className="h-9 w-64 bg-ink/10 rounded-md" />
+          <div className="h-9 w-40 bg-ink/10 rounded-md" />
         </div>
-        <div className="rounded-md border border-border/40 bg-card p-4 space-y-4">
-          <div className="h-6 bg-muted rounded-sm w-full" />
-          <div className="h-6 bg-muted rounded-sm w-full" />
-          <div className="h-6 bg-muted rounded-sm w-full" />
-          <div className="h-6 bg-muted rounded-sm w-full" />
-          <div className="h-6 bg-muted rounded-sm w-full" />
+        <div className="rounded-md border border-ink/10 bg-paper p-4 space-y-4">
+          <div className="h-6 bg-ink/10 rounded-sm w-full" />
+          <div className="h-6 bg-ink/10 rounded-sm w-full" />
+          <div className="h-6 bg-ink/10 rounded-sm w-full" />
+          <div className="h-6 bg-ink/10 rounded-sm w-full" />
+          <div className="h-6 bg-ink/10 rounded-sm w-full" />
         </div>
       </div>
     )
@@ -546,17 +548,17 @@ export function UsersPage({
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
-      <header className="mb-8 flex items-center justify-between">
+    <div className="mx-auto max-w-5xl px-3 py-6 sm:px-6 sm:py-8">
+      <header className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="space-y-1">
-          <h1 className="font-sans text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-ink">
             Utilisateurs &amp; Permissions
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-ink-soft">
             {users.length} {users.length > 1 ? "membres" : "membre"} enregistrés · {totalActive} actifs
           </p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-2">
+        <Button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-2 font-display">
           <UserPlus className="size-4" />
           {showForm ? "Annuler" : "Nouvel utilisateur"}
         </Button>
@@ -646,7 +648,7 @@ export function UsersPage({
         />
         <div className="flex flex-wrap items-center gap-2">
           <Select value={selectedRole} onValueChange={setSelectedRole}>
-            <SelectTrigger className="h-9 w-40 bg-white border-border text-xs">
+            <SelectTrigger className="h-9 w-40 bg-paper border-border text-xs">
               <SelectValue placeholder="Rôle" />
             </SelectTrigger>
             <SelectContent>
@@ -659,7 +661,7 @@ export function UsersPage({
             </SelectContent>
           </Select>
           <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-            <SelectTrigger className="h-9 w-40 bg-white border-border text-xs">
+            <SelectTrigger className="h-9 w-40 bg-paper border-border text-xs">
               <SelectValue placeholder="Statut" />
             </SelectTrigger>
             <SelectContent>
@@ -672,47 +674,48 @@ export function UsersPage({
       </div>
 
       {/* Users table */}
-      <div className="rounded-md border border-border/40 bg-card">
+      <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Nom</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Téléphone</TableHead>
-              <TableHead>Rôle</TableHead>
-              <TableHead>Statut</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+            <TableRow className="border-b border-ink/10">
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Nom</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Email</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft hidden md:table-cell">Téléphone</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Rôle</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Statut</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredUsers.map((user) => {
               const isMe = me?.id === user.id
               return (
-                <TableRow key={user.id}>
+                <TableRow key={user.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
                   {/* Name */}
-                  <TableCell className="font-semibold text-foreground">
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-10 w-10 border border-border/40">
-                        <AvatarFallback className="bg-primary/5 text-primary text-xs font-semibold">
+                  <TableCell className="font-semibold text-ink">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <Avatar className="h-8 w-8 sm:h-10 sm:w-10 border border-ink/10 shrink-0">
+                        <AvatarFallback className="bg-teal-100 text-teal-950 text-xs font-semibold">
                           {user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="flex flex-col">
-                        <span>{user.name}</span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm truncate max-w-[120px] sm:max-w-none">{user.name}</span>
                         {isMe && (
-                          <span className="text-3xs text-muted-foreground font-normal">(vous)</span>
+                          <span className="text-xs text-ink-soft font-normal">(vous)</span>
                         )}
                       </div>
                     </div>
                   </TableCell>
 
                   {/* Email */}
-                  <TableCell className="text-muted-foreground text-sm">
+                  <TableCell className="text-ink-soft text-xs hidden sm:table-cell whitespace-nowrap">
                     {user.email}
                   </TableCell>
 
                   {/* Phone */}
-                  <TableCell className="text-muted-foreground text-sm">
+                  <TableCell className="text-ink-soft text-xs hidden md:table-cell">
                     {user.phone || "—"}
                   </TableCell>
 
@@ -724,7 +727,7 @@ export function UsersPage({
                   </TableCell>
 
                   {/* Status */}
-                  <TableCell>
+                  <TableCell className="hidden sm:table-cell">
                     <Badge variant={user.isActive ? "positive" : "negative"}>
                       {user.isActive ? "Actif" : "Inactif"}
                     </Badge>
@@ -735,7 +738,7 @@ export function UsersPage({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 hover:text-primary"
+                      className="h-9 w-9 hover:text-teal-950"
                       onClick={() => setSelectedUserId(user.id)}
                       title="Consulter et éditer"
                     >
@@ -755,6 +758,7 @@ export function UsersPage({
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
     </div>
   )

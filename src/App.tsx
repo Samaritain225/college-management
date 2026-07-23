@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { ThemeProvider } from "@/lib/theme"
 import { Dashboard } from "@/features/dashboard/Dashboard"
 import { InvestorsPage } from "@/features/investors/InvestorsPage"
 import { ExpensesPage } from "@/features/expenses/ExpensesPage"
@@ -134,14 +135,14 @@ function AppShell() {
           onTabChange={transitionToTab}
           userRole={currentUser.role}
         />
-        <SidebarInset className="border-0 bg-background md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:border-0 md:peer-data-[variant=inset]:shadow-none">
-          <header className="flex h-12 shrink-0 items-center bg-transparent px-6 transition-all">
-            <div className="flex w-full items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <SidebarTrigger className="-ml-1 text-muted-foreground hover:text-foreground" />
+        <SidebarInset className="border-0 bg-paper md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:border-0 md:peer-data-[variant=inset]:shadow-none">
+          <header className="flex h-12 shrink-0 items-center bg-transparent px-3 sm:px-6 transition-all">
+            <div className="flex w-full items-center justify-between min-w-0">
+              <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1">
+                <SidebarTrigger className="-ml-1 shrink-0 text-ink-soft hover:text-ink" />
                 <Separator
                   orientation="vertical"
-                  className="mx-2 data-[orientation=vertical]:h-4 bg-border"
+                  className="mx-1 sm:mx-2 data-[orientation=vertical]:h-4 bg-ink/10"
                 />
                 <Breadcrumb>
                   <BreadcrumbList>
@@ -160,8 +161,8 @@ function AppShell() {
                     <BreadcrumbItem>
                       <BreadcrumbLink
                         className={`${
-                          subBreadcrumbs.length > 0 ? "cursor-pointer" : "pointer-events-none text-foreground font-semibold"
-                        } text-xs`}
+                          subBreadcrumbs.length > 0 ? "cursor-pointer" : "pointer-events-none text-ink font-semibold"
+                        } text-xs truncate max-w-[120px] sm:max-w-none`}
                         onClick={() => {
                           if (subBreadcrumbs.length > 0) {
                             setSubBreadcrumbs([])
@@ -188,7 +189,7 @@ function AppShell() {
               </div>
             </div>
           </header>
-          <main className="flex-1 overflow-y-auto mx-6 mb-6 border border-border bg-card rounded-xl shadow-xs">
+          <main className="flex-1 overflow-y-auto mx-2 mb-2 sm:mx-4 sm:mb-4 md:mx-6 md:mb-6 border border-ink/10 bg-paper rounded-lg sm:rounded-xl shadow-xs">
             <div className="h-full">
               {effectiveTab === "dashboard" && (
                 <Dashboard
@@ -268,34 +269,34 @@ function TeachersPage() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-foreground">Corps Enseignant</h2>
-          <p className="text-xs text-muted-foreground">Liste des enseignants et leurs spécialités.</p>
+          <h2 className="text-lg font-display font-bold text-ink">Corps Enseignant</h2>
+          <p className="text-xs text-ink-soft">Liste des enseignants et leurs spécialités.</p>
         </div>
         <Input
           placeholder="Rechercher un enseignant..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="max-w-xs h-8.5 rounded-md border-border/40 text-xs"
+          className="max-w-xs h-9 rounded-md border-ink/15 text-xs bg-paper text-ink"
         />
       </div>
-      <div className="rounded-md border border-border/40 bg-card">
+      <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-b border-border/40">
-              <TableHead className="text-2xs font-bold">Nom</TableHead>
-              <TableHead className="text-2xs font-bold">Matière</TableHead>
-              <TableHead className="text-2xs font-bold">Genre</TableHead>
-              <TableHead className="text-2xs font-bold">Email</TableHead>
-              <TableHead className="text-2xs font-bold text-right">Statut</TableHead>
+            <TableRow className="border-b border-ink/10">
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Nom</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Matière</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Genre</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Email</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Statut</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((t, i) => (
-              <TableRow key={i} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
-                <TableCell className="text-xs font-semibold">{t.name}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{t.subject}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{t.gender}</TableCell>
-                <TableCell className="text-xs text-muted-foreground font-mono">{t.email}</TableCell>
+              <TableRow key={i} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
+                <TableCell className="text-xs font-display font-semibold text-ink">{t.name}</TableCell>
+                <TableCell className="text-xs text-ink-soft">{t.subject}</TableCell>
+                <TableCell className="text-xs text-ink-soft">{t.gender}</TableCell>
+                <TableCell className="text-xs text-ink-soft font-sans">{t.email}</TableCell>
                 <TableCell className="text-xs text-right">
                   <Badge variant={t.status === "Actif" ? "positive" : "negative"}>{t.status}</Badge>
                 </TableCell>
@@ -324,35 +325,35 @@ function StudentsPage() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-foreground">Registre des Élèves</h2>
-          <p className="text-xs text-muted-foreground">Liste des élèves inscrits dans l'établissement.</p>
+          <h2 className="text-lg font-display font-bold text-ink">Registre des Élèves</h2>
+          <p className="text-xs text-ink-soft">Liste des élèves inscrits dans l'établissement.</p>
         </div>
         <Input
           placeholder="Rechercher un élève..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="max-w-xs h-8.5 rounded-md border-border/40 text-xs"
+          className="max-w-xs h-9 rounded-md border-ink/15 text-xs bg-paper text-ink"
         />
       </div>
-      <div className="rounded-md border border-border/40 bg-card">
+      <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-b border-border/40">
-              <TableHead className="text-2xs font-bold">Matricule</TableHead>
-              <TableHead className="text-2xs font-bold">Nom</TableHead>
-              <TableHead className="text-2xs font-bold">Classe</TableHead>
-              <TableHead className="text-2xs font-bold">Genre</TableHead>
-              <TableHead className="text-2xs font-bold text-right">Parent / Tuteur</TableHead>
+            <TableRow className="border-b border-ink/10">
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Matricule</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Nom</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Classe</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Genre</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Parent / Tuteur</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((s, i) => (
-              <TableRow key={i} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
-                <TableCell className="text-xs font-mono font-bold">{s.id}</TableCell>
-                <TableCell className="text-xs font-semibold">{s.name}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{s.class}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{s.gender}</TableCell>
-                <TableCell className="text-xs text-right text-muted-foreground">{s.parent}</TableCell>
+              <TableRow key={i} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
+                <TableCell className="text-xs font-sans font-bold text-ink">{s.id}</TableCell>
+                <TableCell className="text-xs font-display font-semibold text-ink">{s.name}</TableCell>
+                <TableCell className="text-xs text-ink-soft">{s.class}</TableCell>
+                <TableCell className="text-xs text-ink-soft">{s.gender}</TableCell>
+                <TableCell className="text-xs text-right text-ink-soft">{s.parent}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -377,33 +378,33 @@ function ClassesPage() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-foreground">Gestion des Classes</h2>
-          <p className="text-xs text-muted-foreground">Liste des classes et professeurs principaux.</p>
+          <h2 className="text-lg font-display font-bold text-ink">Gestion des Classes</h2>
+          <p className="text-xs text-ink-soft">Liste des classes et professeurs principaux.</p>
         </div>
         <Input
           placeholder="Rechercher une classe..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="max-w-xs h-8.5 rounded-md border-border/40 text-xs"
+          className="max-w-xs h-9 rounded-md border-ink/15 text-xs bg-paper text-ink"
         />
       </div>
-      <div className="rounded-md border border-border/40 bg-card">
+      <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-b border-border/40">
-              <TableHead className="text-2xs font-bold">Nom de la classe</TableHead>
-              <TableHead className="text-2xs font-bold">Niveau</TableHead>
-              <TableHead className="text-2xs font-bold">Professeur Principal</TableHead>
-              <TableHead className="text-2xs font-bold text-right">Effectif</TableHead>
+            <TableRow className="border-b border-ink/10">
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Nom de la classe</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Niveau</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft">Professeur Principal</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Effectif</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((c, i) => (
-              <TableRow key={i} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
-                <TableCell className="text-xs font-semibold">{c.name}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{c.level}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{c.headTeacher}</TableCell>
-                <TableCell className="text-xs text-right font-mono font-semibold">{c.count} élèves</TableCell>
+              <TableRow key={i} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
+                <TableCell className="text-xs font-display font-semibold text-ink">{c.name}</TableCell>
+                <TableCell className="text-xs text-ink-soft">{c.level}</TableCell>
+                <TableCell className="text-xs text-ink-soft">{c.headTeacher}</TableCell>
+                <TableCell className="text-xs text-right font-sans font-semibold text-ink">{c.count} élèves</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -419,14 +420,16 @@ function ClassesPage() {
 
 function App() {
   return (
-    <SettingsProvider>
-      <AuthProvider>
-        <RequireAuth>
-          <AppShell />
-        </RequireAuth>
-        <Toaster />
-      </AuthProvider>
-    </SettingsProvider>
+    <ThemeProvider>
+      <SettingsProvider>
+        <AuthProvider>
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+          <Toaster />
+        </AuthProvider>
+      </SettingsProvider>
+    </ThemeProvider>
   )
 }
 

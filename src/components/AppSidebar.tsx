@@ -60,16 +60,16 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader className="border-b border-sidebar-border/50 px-6 py-4">
+      <SidebarHeader className="border-b border-ink/10 px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-medium text-sm overflow-hidden shrink-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-950 text-white font-display font-medium text-sm overflow-hidden shrink-0">
             {collegeLogo ? (
               <img src={collegeLogo} alt="Logo" className="h-full w-full object-cover" />
             ) : (
               collegeName.charAt(0).toUpperCase()
             )}
           </div>
-          <span className="font-semibold text-foreground truncate group-data-[collapsible=icon]:hidden">
+          <span className="font-display font-semibold text-ink truncate group-data-[collapsible=icon]:hidden">
             {collegeName}
           </span>
         </div>
@@ -87,12 +87,12 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
                   onClick={() => onTabChange("dashboard")}
                   className={`w-full justify-start gap-3 transition-colors ${
                     currentTab === "dashboard"
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      ? "bg-teal-100 text-teal-950 font-display font-semibold"
+                      : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
                   }`}
                 >
-                  <LayoutDashboard className="h-4.5 w-4.5 shrink-0" />
-                  <span className="group-data-[collapsible=icon]:hidden">Tableau de bord</span>
+                  <LayoutDashboard className="size-4 shrink-0" />
+                  <span className="group-data-[collapsible=icon]:hidden font-display">Tableau de bord</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -101,7 +101,7 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
 
         {/* Group 1: Académique */}
         <SidebarGroup className="p-0 space-y-1">
-          <SidebarGroupLabel className="text-3xs font-bold text-muted-foreground/70 tracking-wider px-2 group-data-[collapsible=icon]:hidden">
+          <SidebarGroupLabel className="text-xs font-display font-semibold text-ink-soft/70 uppercase tracking-wider px-2 group-data-[collapsible=icon]:hidden">
             Académique
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -114,12 +114,12 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
                     onClick={() => onTabChange(item.id)}
                     className={`w-full justify-start gap-3 transition-colors ${
                       currentTab === item.id
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        ? "bg-teal-100 text-teal-950 font-display font-semibold"
+                        : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
                     }`}
                   >
-                    <item.icon className="h-4.5 w-4.5 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                    <item.icon className="size-4 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden font-display">{item.title}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -129,7 +129,7 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
 
         {/* Group 2: Finances */}
         <SidebarGroup className="p-0 space-y-1">
-          <SidebarGroupLabel className="text-3xs font-bold text-muted-foreground/70 tracking-wider px-2 group-data-[collapsible=icon]:hidden">
+          <SidebarGroupLabel className="text-xs font-display font-semibold text-ink-soft/70 uppercase tracking-wider px-2 group-data-[collapsible=icon]:hidden">
             Finances
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -142,12 +142,12 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
                     onClick={() => onTabChange(item.id)}
                     className={`w-full justify-start gap-3 transition-colors ${
                       currentTab === item.id
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        ? "bg-teal-100 text-teal-950 font-display font-semibold"
+                        : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
                     }`}
                   >
-                    <item.icon className="h-4.5 w-4.5 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                    <item.icon className="size-4 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden font-display">{item.title}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -157,7 +157,7 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
 
         {/* Group 3: Système */}
         <SidebarGroup className="p-0 space-y-1 mt-auto">
-          <SidebarGroupLabel className="text-3xs font-bold text-muted-foreground/70 tracking-wider px-2 group-data-[collapsible=icon]:hidden">
+          <SidebarGroupLabel className="text-xs font-display font-semibold text-ink-soft/70 uppercase tracking-wider px-2 group-data-[collapsible=icon]:hidden">
             Système
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -170,12 +170,12 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
                     onClick={() => onTabChange(item.id)}
                     className={`w-full justify-start gap-3 transition-colors ${
                       currentTab === item.id
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        ? "bg-teal-100 text-teal-950 font-display font-semibold"
+                        : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
                     }`}
                   >
-                    <item.icon className="h-4.5 w-4.5 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                    <item.icon className="size-4 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden font-display">{item.title}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
