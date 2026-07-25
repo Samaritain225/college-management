@@ -1,5 +1,25 @@
-import { v4 as uuid } from "uuid"
-import { api, isApiError } from "@/lib/api"
+// Data layer for the college-budget app, backed by Supabase.
+//
+// Deliberately keeps the field names/shapes the UI already expects
+// (agreed_contribution, description, spent_at, amount) even though the
+// underlying schema uses different column names (target_contribution,
+// label, occurred_on, total_amount) — this is a translation layer, not a
+// 1:1 passthrough, so the feature pages built against the old AdonisJS API
+// needed minimal changes. See docs/refactor-plan.md for the schema itself.
+//
+// This app is single-college for now (Wagnon) — COLLEGE_ID is a constant
+// rather than derived per-request. Multi-college support is a later phase;
+// every table already carries college_id so that's a query-scoping change,
+// not a schema migration, when it happens.
+
+import { supabase } from "@/lib/supabase"
+
+export const COLLEGE_ID = "e55af449-8c95-41ee-9732-859ece20aaa1"
+
+function unwrap<T>(res: { data: T | null; error: { message: string } | null }): T {
+  if (res.error) throw new Error(res.error.message)
+  return res.data as T
+}
 
 // ---- Investors ------------------------------------------------------
 
@@ -17,24 +37,21 @@ export interface Investor {
 }
 
 export async function listInvestors(): Promise<Investor[]> {
-  const res = await api.get<any>("/investors")
-  const rawList = res?.data?.investors ?? res?.investors ?? (Array.isArray(res?.data) ? res.data : null)
+  const res = await supabase
+    .from("investors")
+    .select("id, user_id, name, phone, target_contribution, joined_at, profiles(full_name, email)")
+    .eq("college_id", COLLEGE_ID)
+    .order("name", { ascending: true })
+  const rows = unwrap(res)
 
-  if (!Array.isArray(rawList)) return []
-
-  return rawList.map((inv: any) => ({
-    id: inv.id,
-    user_id: inv.userId ?? null,
-    name: inv.name,
-    phone: inv.phone ?? null,
-    agreed_contribution: Number(inv.agreedContribution ?? 0),
-    joined_at: inv.joinedAt || inv.createdAt || new Date().toISOString(),
-    user: inv.user
-      ? {
-          name: inv.user.name ?? null,
-          email: inv.user.email ?? null,
-        }
-      : null,
+  return rows.map((r: any) => ({
+    id: r.id,
+    user_id: r.user_id,
+    name: r.name,
+    phone: r.phone,
+    agreed_contribution: Number(r.target_contribution),
+    joined_at: r.joined_at,
+    user: r.profiles ? { name: r.profiles.full_name, email: r.profiles.email } : null,
   }))
 }
 
@@ -47,17 +64,22 @@ export async function addInvestor(input: {
 }): Promise<Investor> {
   const joinedAt = input.joinedAt || new Date().toISOString()
 
-  const res = await api.post<any>("/investors", {
-    name: input.name,
-    agreedContribution: input.agreedContribution,
-    joinedAt,
-    userId: input.userId ?? undefined,
-  })
-
-  const invData = res?.data?.investor ?? res?.investor ?? res?.data
+  const res = await supabase
+    .from("investors")
+    .insert({
+      college_id: COLLEGE_ID,
+      user_id: input.userId ?? null,
+      name: input.name,
+      phone: input.phone ?? null,
+      target_contribution: input.agreedContribution,
+      joined_at: joinedAt,
+    })
+    .select("id")
+    .single()
+  const row = unwrap(res)
 
   return {
-    id: invData?.id ?? uuid(),
+    id: row.id,
     user_id: input.userId ?? null,
     name: input.name,
     phone: input.phone ?? null,
@@ -75,13 +97,22 @@ export async function updateInvestor(
     phone?: string | null
   }
 ): Promise<void> {
-  await api.patch<any>(`/investors/${id}`, {
-    name: input.name,
-    agreedContribution: input.agreedContribution,
-  })
+  const res = await supabase
+    .from("investors")
+    .update({
+      name: input.name,
+      user_id: input.userId ?? null,
+      target_contribution: input.agreedContribution,
+      phone: input.phone ?? null,
+    })
+    .eq("id", id)
+  unwrap(res)
 }
 
 // ---- Pool totals (derived, never stored statically) ------------------
+// "Pool" here means the committed/agreed total (the budget target investors
+// signed up for), not cash on hand — see college_pool view for the latter,
+// used once the dashboard grows a "resources" concept beyond the pool ratio.
 
 export async function getPoolTotal(): Promise<number> {
   const investors = await listInvestors()
@@ -99,23 +130,35 @@ export interface Contribution {
 }
 
 export async function listContributions(): Promise<Contribution[]> {
-  const res = await api.get<any>("/contributions")
-  const rawList = res?.data?.contributions ?? res?.contributions ?? []
+  const res = await supabase
+    .from("contributions")
+    .select("id, investor_id, amount, paid_at, method, note, recorded_by")
+    .eq("college_id", COLLEGE_ID)
+    .order("paid_at", { ascending: true })
+  const rows = unwrap(res)
 
-  return (rawList as any[]).map((c) => ({
-    id: c.id,
-    investor_id: c.investorId,
-    amount: Number(c.amount),
-    paid_at: c.paidAt,
-    method: c.method ?? "",
-    note: c.note ?? null,
-    recorded_by: c.recordedBy,
+  return rows.map((r: any) => ({
+    id: r.id,
+    investor_id: r.investor_id,
+    amount: Number(r.amount),
+    paid_at: r.paid_at,
+    method: r.method ?? "",
+    note: r.note,
+    recorded_by: r.recorded_by,
   }))
 }
 
+// Cotisation only — matches the unit of getPoolTotal() (agreed_contribution
+// is the cotisation target; adhésion is a separate flat entry fee excluded
+// from this ratio, per the ownership-basis decision in refactor-plan.md).
 export async function getTotalContributed(): Promise<number> {
-  const contributions = await listContributions()
-  return contributions.reduce((sum, c) => sum + c.amount, 0)
+  const res = await supabase
+    .from("contributions")
+    .select("amount")
+    .eq("college_id", COLLEGE_ID)
+    .eq("type", "cotisation")
+  const rows = unwrap(res)
+  return rows.reduce((sum: number, r: any) => sum + Number(r.amount), 0)
 }
 
 export interface InvestorStanding extends Investor {
@@ -125,20 +168,24 @@ export interface InvestorStanding extends Investor {
 }
 
 export async function getInvestorStandings(): Promise<InvestorStanding[]> {
-  const [investors, contributions] = await Promise.all([listInvestors(), listContributions()])
-
-  const paidMap = new Map<string, number>()
-  for (const c of contributions) {
-    paidMap.set(c.investor_id, (paidMap.get(c.investor_id) ?? 0) + c.amount)
-  }
-
-  const pool = investors.reduce((sum, inv) => sum + inv.agreed_contribution, 0)
+  const [investors, res] = await Promise.all([
+    listInvestors(),
+    supabase
+      .from("investor_standings")
+      .select("id, paid_cotisation, paid_adhesion, owed, ownership_pct")
+      .eq("college_id", COLLEGE_ID),
+  ])
+  const standingRows = unwrap(res)
+  const standingsById = new Map(standingRows.map((r: any) => [r.id, r]))
 
   return investors.map((inv) => {
-    const paid = paidMap.get(inv.id) ?? 0
-    const owed = Math.max(0, inv.agreed_contribution - paid)
-    const ownership_pct = pool > 0 ? (inv.agreed_contribution / pool) * 100 : 0
-    return { ...inv, paid, owed, ownership_pct }
+    const s = standingsById.get(inv.id) as any
+    return {
+      ...inv,
+      paid: s ? Number(s.paid_cotisation) + Number(s.paid_adhesion) : 0,
+      owed: s ? Number(s.owed) : inv.agreed_contribution,
+      ownership_pct: s ? Number(s.ownership_pct) : 0,
+    }
   })
 }
 
@@ -151,27 +198,21 @@ export interface BudgetCategory {
 }
 
 export async function listCategories(): Promise<BudgetCategory[]> {
-  const res = await api.get<{ data: { categories: any[] } }>("/expense-categories")
-  const categories = res?.data?.categories ?? []
-  return categories.map((c: any) => ({
-    id: c.id,
-    name: c.name,
-    description: c.description ?? null,
-  }))
+  const res = await supabase
+    .from("expense_categories")
+    .select("id, name, description")
+    .eq("college_id", COLLEGE_ID)
+    .order("name", { ascending: true })
+  return unwrap(res)
 }
 
 export async function addCategory(name: string, description?: string): Promise<BudgetCategory> {
-  const res = await api.post<{ data: { category: any } }>("/expense-categories", {
-    name,
-    description: description || undefined,
-  })
-  const apiCat = res?.data?.category
-
-  return {
-    id: apiCat?.id ?? uuid(),
-    name: apiCat?.name ?? name,
-    description: apiCat?.description ?? description ?? null,
-  }
+  const res = await supabase
+    .from("expense_categories")
+    .insert({ college_id: COLLEGE_ID, name, description: description || null })
+    .select("id, name, description")
+    .single()
+  return unwrap(res)
 }
 
 // ---- Expenses ------------------------------------------------------
@@ -192,19 +233,25 @@ export interface Expense {
 }
 
 export async function listExpenses(): Promise<Expense[]> {
-  const res = await api.get<{ data: { expenses: any[] } }>("/expenses")
-  const expenses = res?.data?.expenses ?? []
+  const res = await supabase
+    .from("expenses")
+    .select(
+      "id, category_id, total_amount, label, occurred_on, recorded_by, reverses_expense_id, expense_categories(name), profiles(full_name)"
+    )
+    .eq("college_id", COLLEGE_ID)
+    .order("occurred_on", { ascending: false })
+  const rows = unwrap(res)
 
-  return expenses.map((e: any) => ({
+  return rows.map((e: any) => ({
     id: e.id,
-    category_id: e.categoryId,
-    category_name: e.category?.name || "Catégorie inconnue",
-    amount: Number(e.amount),
-    description: e.description,
-    spent_at: e.spentAt,
-    recorded_by: e.recordedBy,
-    recorded_by_name: e.recorder?.name ?? null,
-    reverses_expense_id: e.reversesExpenseId ?? null,
+    category_id: e.category_id,
+    category_name: e.expense_categories?.name || "Catégorie inconnue",
+    amount: Number(e.total_amount),
+    description: e.label,
+    spent_at: e.occurred_on,
+    recorded_by: e.recorded_by,
+    recorded_by_name: e.profiles?.full_name ?? null,
+    reverses_expense_id: e.reverses_expense_id,
   }))
 }
 
@@ -215,18 +262,26 @@ export async function addExpense(input: {
   spentAt: string
   receiptPhotoPath?: string | null
 }): Promise<void> {
-  await api.post<{ data: { expense: any } }>("/expenses", {
-    categoryId: input.categoryId,
-    amount: input.amount,
-    description: input.description,
-    spentAt: input.spentAt,
-    receiptPhotoPath: input.receiptPhotoPath || undefined,
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) throw new Error("Not authenticated")
+
+  const res = await supabase.from("expenses").insert({
+    college_id: COLLEGE_ID,
+    category_id: input.categoryId,
+    label: input.description,
+    total_amount: input.amount,
+    occurred_on: input.spentAt.slice(0, 10),
+    date_precision: "day",
+    receipt_key: input.receiptPhotoPath || null,
+    recorded_by: auth.user.id,
   })
+  unwrap(res)
 }
 
 export async function getTotalSpent(): Promise<number> {
-  const expenses = await listExpenses()
-  return expenses.reduce((sum, e) => sum + e.amount, 0)
+  const res = await supabase.from("expenses").select("total_amount").eq("college_id", COLLEGE_ID)
+  const rows = unwrap(res)
+  return rows.reduce((sum: number, r: any) => sum + Number(r.total_amount), 0)
 }
 
 export async function getSpentByCategory(): Promise<{ name: string; amount: number }[]> {
@@ -282,6 +337,13 @@ export async function getRecentActivities(): Promise<Activity[]> {
 }
 
 // ---- User activity log --------------------------------------------------
+// Sourced from activity_log (populated by DB triggers, not app code — see
+// the initial_schema migration). metadata on each row is a raw dump of the
+// inserted record (to_jsonb(new)), so it carries the new schema's column
+// names (label, total_amount, target_contribution) rather than the
+// UI-facing camelCase shape the old Adonis activity service produced.
+// Normalized here rather than reshaping RecentActivities.tsx's already
+// carefully laid out formatActivityItem().
 
 export interface UserActivityLog {
   id: string
@@ -293,22 +355,56 @@ export interface UserActivityLog {
 }
 
 export async function listUserActivities(): Promise<UserActivityLog[]> {
-  try {
-    const res = await api.get<{ data: { activities: any[] } }>("/activities")
-    const activities = res?.data?.activities ?? []
-    return activities
-      .filter((act: any) => !act.action.startsWith("AUTH_"))
-      .map((act: any) => ({
-        id: act.id,
-        userId: act.userId ?? null,
-        userName: act.userName ?? act.user?.name ?? act.metadata?.actorName ?? "Utilisateur",
-        action: act.action,
-        createdAt: act.createdAt,
-        metadata: act.metadata ?? null,
-      }))
-  } catch (err) {
-    if (isApiError(err) && err.kind === "http") throw err
-    console.warn("Failed to fetch user activities from API:", err)
-    return []
+  const res = await supabase
+    .from("activity_log")
+    .select("id, user_id, action, metadata, created_at, profiles(full_name)")
+    .eq("college_id", COLLEGE_ID)
+    .order("created_at", { ascending: false })
+    .limit(20)
+  const rows = unwrap(res)
+
+  // CONTRIBUTION_CREATE rows only carry investor_id in their raw metadata —
+  // resolve names for the subtitle in one batch rather than per-row.
+  const investorIds = Array.from(
+    new Set(
+      rows
+        .filter((r: any) => r.action === "CONTRIBUTION_CREATE")
+        .map((r: any) => r.metadata?.investor_id)
+        .filter(Boolean)
+    )
+  )
+  let investorNameById = new Map<string, string>()
+  if (investorIds.length > 0) {
+    const investorsRes = await supabase.from("investors").select("id, name").in("id", investorIds)
+    const investorRows = unwrap(investorsRes)
+    investorNameById = new Map(investorRows.map((i: any) => [i.id, i.name]))
   }
+
+  return rows.map((r: any) => {
+    const raw = r.metadata || {}
+    let metadata: Record<string, any> = raw
+
+    if (r.action === "EXPENSE_CREATE") {
+      metadata = { description: raw.label, amount: raw.total_amount }
+    } else if (r.action === "CONTRIBUTION_CREATE") {
+      metadata = {
+        investorName: investorNameById.get(raw.investor_id) ?? null,
+        amount: raw.amount,
+      }
+    } else if (r.action === "INVESTOR_CREATE") {
+      metadata = { name: raw.name, agreedContribution: raw.target_contribution }
+    }
+    // OTHER_INCOME_CREATE / EXPENSE_PAYMENT_CREATE fall through with their
+    // raw `amount` column already matching what formatActivityItem's
+    // default case reads.
+
+    return {
+      id: r.id,
+      userId: r.user_id,
+      userName: r.profiles?.full_name ?? "Utilisateur",
+      action: r.action,
+      createdAt: r.created_at,
+      metadata,
+    }
+  })
 }

@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/utils"
-import { api } from "@/lib/api"
+import { listAdminUsers, type ApiUser } from "@/lib/adminUsers"
 import {
   addInvestor,
   updateInvestor,
@@ -46,13 +46,7 @@ import {
   Phone,
 } from "lucide-react"
 
-interface LinkableUser {
-  id: string
-  name: string
-  email: string
-  roleId: string
-  isActive: boolean
-}
+type LinkableUser = ApiUser
 
 interface InvestorsPageProps {
   onChange?: () => void
@@ -103,8 +97,8 @@ export function InvestorsPage({
 
   async function loadUsers() {
     try {
-      const data = await api.get<{ data: { users: LinkableUser[] } }>("/users")
-      setUsers(data.data.users)
+      const res = await listAdminUsers()
+      setUsers(res.data.users)
     } catch (err) {
       console.error("Failed to fetch users to link:", err)
     }

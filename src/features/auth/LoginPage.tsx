@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useSettings } from "@/lib/settings"
 import { useAuth } from "@/lib/auth"
-import { isApiError } from "@/lib/api"
 import { Lock, Pencil, Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
 
@@ -30,7 +29,6 @@ export function LoginPage() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [serverWaking, setServerWaking] = useState(false)
   const [quoteIndex, setQuoteIndex] = useState(0)
   const [fadeState, setFadeState] = useState<"in" | "out">("in")
 
@@ -46,41 +44,27 @@ export function LoginPage() {
     return () => clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    if (!submitting) {
-      setServerWaking(false)
-      return
-    }
-
-    const timer = window.setTimeout(() => setServerWaking(true), 5000)
-    return () => window.clearTimeout(timer)
-  }, [submitting])
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setServerWaking(false)
     setSubmitting(true)
 
     try {
       const user = await login(email, password)
       toast.success(`Bon retour, ${user.name} !`)
     } catch (err) {
-      if (isApiError(err)) {
-        if (err.kind === "timeout") {
-          toast.error("Le serveur ne répond pas encore. Réessayez dans un instant.")
-        } else if (err.kind === "network") {
-          toast.error("Impossible de contacter le serveur — vérifiez votre connexion.")
-        } else if (err.status === 403) {
-          // Deactivated account - longer duration (10s) and explicit message
-          toast.error(err.message || "Compte désactivé. Veuillez contacter un administrateur.", {
-            duration: 10000,
-          })
-        } else {
-          // 401 Wrong credentials or other api errors
-          toast.error(err.message || "Identifiants incorrects.")
-        }
+      // Supabase's own guidance: match on .code/.name, never on message text.
+      const code = (err as { code?: string } | undefined)?.code
+      const status = (err as { status?: number } | undefined)?.status
+
+      if (code === "user_banned") {
+        toast.error("Compte désactivé. Veuillez contacter un administrateur.", { duration: 10000 })
+      } else if (code === "invalid_credentials") {
+        toast.error("Identifiants incorrects.")
+      } else if (status === undefined) {
+        // No HTTP status at all means the request never reached the server.
+        toast.error("Impossible de contacter le serveur — vérifiez votre connexion.")
       } else {
-        toast.error("Une erreur inattendue est survenue. Réessayez.")
+        toast.error((err as Error)?.message || "Une erreur inattendue est survenue. Réessayez.")
       }
     } finally {
       setSubmitting(false)
@@ -163,17 +147,8 @@ export function LoginPage() {
                 </div>
 
                 <Button type="submit" className="w-full mt-2 font-display" disabled={submitting}>
-                  {submitting
-                    ? serverWaking
-                      ? "Connexion en cours… le serveur démarre"
-                      : "Connexion en cours…"
-                    : "Se connecter"}
+                  {submitting ? "Connexion en cours…" : "Se connecter"}
                 </Button>
-                {submitting && serverWaking && (
-                  <p className="text-xs text-ink-soft text-center">
-                    Le serveur peut prendre un moment à démarrer.
-                  </p>
-                )}
               </form>
             </CardContent>
           </Card>
