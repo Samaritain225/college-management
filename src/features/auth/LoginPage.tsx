@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react"
-import HCaptcha from "@hcaptcha/react-hcaptcha"
+import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,8 +33,14 @@ export function LoginPage() {
   const [quoteIndex, setQuoteIndex] = useState(0)
   const [fadeState, setFadeState] = useState<"in" | "out">("in")
 
-  const captchaRef = useRef<HCaptcha>(null)
-  const siteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001"
+  const captchaRef = useRef<TurnstileInstance>(null)
+  const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined
+  // Disabled until a real site key is configured (Cloudflare dash + the
+  // Turnstile secret set as the CAPTCHA provider in Supabase Dashboard >
+  // Authentication > Attack Protection) — rather than rendering a widget
+  // pointed at a placeholder key. Login falls back to no verification below;
+  // it turns itself back on the moment the env var is set, no code change.
+  const captchaEnabled = Boolean(siteKey)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -53,7 +59,7 @@ export function LoginPage() {
       const user = await login(email, password, token)
       toast.success(`Bon retour, ${user.name} !`)
     } catch (err) {
-      captchaRef.current?.resetCaptcha()
+      captchaRef.current?.reset()
       // Supabase's own guidance: match on .code/.name, never on message text.
       const code = (err as { code?: string } | undefined)?.code
       const status = (err as { status?: number } | undefined)?.status
@@ -160,17 +166,20 @@ export function LoginPage() {
                   </div>
                 </div>
 
-                {/* Invisible hCaptcha Security Verification */}
-                <HCaptcha
-                  ref={captchaRef}
-                  sitekey={siteKey}
-                  size="invisible"
-                  onVerify={(token) => executeLogin(token)}
-                  onError={() => {
-                    setSubmitting(false)
-                    toast.error("Vérification de sécurité échouée. Veuillez réessayer.")
-                  }}
-                />
+                {/* Invisible Cloudflare Turnstile verification — only mounted
+                    once a real site key is configured; see captchaEnabled. */}
+                {captchaEnabled && (
+                  <Turnstile
+                    ref={captchaRef}
+                    siteKey={siteKey!}
+                    options={{ size: "invisible", execution: "execute" }}
+                    onSuccess={(token) => executeLogin(token)}
+                    onError={() => {
+                      setSubmitting(false)
+                      toast.error("Vérification de sécurité échouée. Veuillez réessayer.")
+                    }}
+                  />
+                )}
 
                 <Button type="submit" className="w-full mt-2 font-display" disabled={submitting}>
                   {submitting ? "Connexion en cours…" : "Se connecter"}

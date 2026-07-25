@@ -1,4 +1,7 @@
-// storage-sign: mints short-lived presigned URLs for Cloudflare R2.
+// storage-sign: mints short-lived presigned upload URLs for Cloudflare R2,
+// and performs authorized deletes (server-side, not presigned — a delete has
+// no body to stream, so there's no bandwidth reason to hand the client a URL
+// instead of just doing it here).
 //
 // The R2 credentials are S3 write credentials for the whole bucket — they can
 // never reach the browser (anything in a VITE_* var is inlined into the
@@ -9,10 +12,17 @@
 // deliberate: Edge Functions cap request size, and on the ~70%-connectivity
 // links this app targets, one hop beats two.
 //
+// Folder layout (see buildKey below): logos/<uuid>.<ext>,
+// avatars/<user-id>/<uuid>.<ext>, receipts/<year>/<uuid>.<ext>.
+//
 // Authorization is per upload kind, mirroring the RLS rules:
 //   logo    -> admin / super_admin only (college identity)
 //   avatar  -> any authenticated user, but only ever their own key
 //   receipt -> admin / super_admin / treasurer (finance)
+// Delete requests are checked the same way, *plus* the key must actually fall
+// under that kind's own prefix — otherwise a caller authorized for "avatar"
+// could pass kind="avatar" but a "logos/..." key and delete something they
+// have no business touching.
 //
 // Required secrets (supabase secrets set ...):
 //   R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
@@ -77,6 +87,37 @@ const r2 = new AwsClient({
   region: "auto",
 })
 
+/** Folder each kind lives under — single source of truth, used both to build
+ *  a fresh key and to validate a key handed back for deletion. */
+function folderFor(kind: UploadKind, callerId: string): string {
+  if (kind === "avatar") return `avatars/${callerId}/`
+  if (kind === "logo") return "logos/"
+  return `receipts/${new Date().getFullYear()}/`
+}
+
+function buildKey(kind: UploadKind, callerId: string, contentType: string): string {
+  const ext = EXTENSIONS[contentType]
+  return `${folderFor(kind, callerId)}${crypto.randomUUID()}.${ext}`
+}
+
+interface Roles {
+  isSuperAdmin: boolean
+  isAdmin: boolean
+  canManageFinance: boolean
+}
+
+function authorize(kind: UploadKind, roles: Roles): string | null {
+  if (kind === "logo" && !roles.isAdmin) {
+    return "Forbidden — admin or super_admin role required"
+  }
+  if (kind === "receipt" && !roles.canManageFinance) {
+    return "Forbidden — finance role required"
+  }
+  // avatar: any authenticated user — scoping to their own key happens via
+  // the caller-id-derived prefix, not a role check.
+  return null
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS })
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405)
@@ -92,18 +133,69 @@ Deno.serve(async (req) => {
   } = await asCaller.auth.getUser()
   if (!caller) return json({ error: "Invalid session" }, 401)
 
-  let body: { kind?: string; contentType?: string; size?: number }
+  let body: {
+    action?: "sign" | "delete"
+    kind?: string
+    contentType?: string
+    size?: number
+    key?: string
+  }
   try {
     body = await req.json()
   } catch {
     return json({ error: "Invalid JSON body" }, 400)
   }
 
+  const action = body.action ?? "sign"
   const kind = body.kind as UploadKind
   if (!kind || !ALLOWED_KINDS.includes(kind)) {
     return json({ error: `kind must be one of: ${ALLOWED_KINDS.join(", ")}` }, 400)
   }
 
+  // Role lookup with service_role: user_roles is RLS-protected, and scoping by
+  // the caller's own token here would be circular. super_admin rows are global
+  // (college_id is null) — see AGENTS.md.
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+  const { data: roleRows } = await admin
+    .from("user_roles")
+    .select("role_id")
+    .eq("user_id", caller.id)
+  const roleIds = (roleRows ?? []).map((r) => r.role_id)
+
+  const roles: Roles = {
+    isSuperAdmin: roleIds.includes("super_admin"),
+    isAdmin: roleIds.includes("super_admin") || roleIds.includes("admin"),
+    canManageFinance:
+      roleIds.includes("super_admin") || roleIds.includes("admin") || roleIds.includes("treasurer"),
+  }
+
+  const authError = authorize(kind, roles)
+  if (authError) return json({ error: authError }, 403)
+
+  if (action === "delete") {
+    const key = body.key
+    if (!key) return json({ error: "key is required for delete" }, 400)
+
+    // The role check above proves the caller may act on this *kind* of
+    // object; this proves the specific key actually belongs to that kind's
+    // folder (and, for avatars, to this caller specifically) — without it, an
+    // admin authorized for "logo" could pass kind="logo" alongside an
+    // unrelated receipts/... key and delete someone else's document.
+    const expectedFolder = folderFor(kind, caller.id)
+    if (!key.startsWith(expectedFolder)) {
+      return json({ error: "key does not belong to the authorized scope" }, 403)
+    }
+
+    const res = await r2.fetch(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`, { method: "DELETE" })
+    // R2 returns 204 whether or not the key existed — deleting an
+    // already-gone object isn't an error condition for our callers.
+    if (!res.ok && res.status !== 404) {
+      return json({ error: `R2 delete failed (${res.status})` }, 502)
+    }
+    return json({ data: { deleted: true } })
+  }
+
+  // action === "sign"
   const contentType = body.contentType ?? ""
   if (!ALLOWED_CONTENT_TYPES[kind].includes(contentType)) {
     return json(
@@ -119,40 +211,9 @@ Deno.serve(async (req) => {
     return json({ error: `File exceeds the ${MAX_BYTES[kind] / 1024 / 1024} MB limit` }, 400)
   }
 
-  // Role lookup with service_role: user_roles is RLS-protected, and scoping by
-  // the caller's own token here would be circular. super_admin rows are global
-  // (college_id is null) — see AGENTS.md.
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
-  const { data: roleRows } = await admin
-    .from("user_roles")
-    .select("role_id")
-    .eq("user_id", caller.id)
-  const roles = (roleRows ?? []).map((r) => r.role_id)
-
-  const isSuperAdmin = roles.includes("super_admin")
-  const isAdmin = isSuperAdmin || roles.includes("admin")
-  const canManageFinance = isAdmin || roles.includes("treasurer")
-
-  if (kind === "logo" && !isAdmin) {
-    return json({ error: "Forbidden — admin or super_admin role required" }, 403)
-  }
-  if (kind === "receipt" && !canManageFinance) {
-    return json({ error: "Forbidden — finance role required" }, 403)
-  }
-  // avatar: any authenticated user, and the key below is derived from their
-  // own id, so one user can never overwrite another's.
-
-  const ext = EXTENSIONS[contentType]
-  const unique = crypto.randomUUID()
-
   // Keys are server-derived, never client-supplied — a client-chosen key would
   // let any caller overwrite any object in the bucket.
-  const key =
-    kind === "avatar"
-      ? `avatars/${caller.id}/${unique}.${ext}`
-      : kind === "logo"
-        ? `logos/${unique}.${ext}`
-        : `receipts/${new Date().getFullYear()}/${unique}.${ext}`
+  const key = buildKey(kind, caller.id, contentType)
 
   // Expiry rides as a query param (X-Amz-Expires), not a header — that's how
   // SigV4 query-string signing carries it.

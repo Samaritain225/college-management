@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Save, KeyRound, Mail, ShieldCheck } from "lucide-react"
+import { Save, KeyRound, Mail, ShieldCheck, Camera, X } from "lucide-react"
 import { useAuth } from "@/lib/auth"
 import { supabase } from "@/lib/supabase"
+import { uploadFile, deleteFile, publicUrl } from "@/lib/uploads"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 
 const MIN_PASSWORD_LENGTH = 8
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super administrateur",
@@ -33,23 +35,31 @@ export function ProfileSection() {
 
   const [fullName, setFullName] = useState("")
   const [phone, setPhone] = useState("")
+  const [avatarKey, setAvatarKey] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
+
+  // Deferred like the college logo: nothing hits R2 until Save, so
+  // selecting a photo then navigating away never orphans an upload.
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null)
+  const [pendingAvatarPreview, setPendingAvatarPreview] = useState<string | null>(null)
+  const [avatarRemoved, setAvatarRemoved] = useState(false)
+  const previewUrlRef = useRef<string | null>(null)
 
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [savingPassword, setSavingPassword] = useState(false)
 
   // Read straight from `profiles` rather than the cached auth user: the cache
-  // is a point-in-time snapshot kept for offline rendering, and `phone` isn't
-  // part of it at all.
+  // is a point-in-time snapshot kept for offline rendering, and `phone`/
+  // `avatar_key` aren't part of it at all.
   useEffect(() => {
     if (!user) return
     let cancelled = false
 
     supabase
       .from("profiles")
-      .select("full_name, phone")
+      .select("full_name, phone, avatar_key")
       .eq("id", user.id)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -60,6 +70,7 @@ export function ProfileSection() {
         }
         setFullName(data?.full_name ?? user.name)
         setPhone(data?.phone ?? "")
+        setAvatarKey(data?.avatar_key ?? null)
         setLoaded(true)
       })
 
@@ -68,9 +79,49 @@ export function ProfileSection() {
     }
   }, [user])
 
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    }
+  }, [])
+
   if (!user) return null
 
   const roleLabel = ROLE_LABELS[user.role] ?? user.role
+  const avatarUrl = avatarRemoved ? null : pendingAvatarPreview ?? publicUrl(avatarKey)
+
+  function handleAvatarSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Choisissez un fichier image (PNG ou JPG).")
+      return
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      toast.error("Image trop volumineuse. Choisissez un fichier de moins de 2 Mo.")
+      return
+    }
+
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    const preview = URL.createObjectURL(file)
+    previewUrlRef.current = preview
+
+    setPendingAvatarFile(file)
+    setPendingAvatarPreview(preview)
+    setAvatarRemoved(false)
+  }
+
+  function handleRemoveAvatar() {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+    setPendingAvatarFile(null)
+    setPendingAvatarPreview(null)
+    setAvatarRemoved(true)
+  }
 
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault()
@@ -81,13 +132,44 @@ export function ProfileSection() {
     }
 
     setSavingProfile(true)
+    const previousAvatarKey = avatarKey
+
     try {
+      let nextAvatarKey = avatarKey
+      if (pendingAvatarFile) {
+        nextAvatarKey = await uploadFile(pendingAvatarFile, "avatar")
+      } else if (avatarRemoved) {
+        nextAvatarKey = null
+      }
+
       const { error } = await supabase
         .from("profiles")
-        .update({ full_name: fullName.trim(), phone: phone.trim() || null })
+        .update({
+          full_name: fullName.trim(),
+          phone: phone.trim() || null,
+          avatar_key: nextAvatarKey,
+        })
         .eq("id", user.id)
       if (error) throw error
+
+      setAvatarKey(nextAvatarKey)
       toast.success("Profil mis à jour. Reconnectez-vous pour voir le nouveau nom partout.")
+
+      // Same ordering as the college logo: only delete the old object once
+      // the row pointing at the new one has committed.
+      if (previousAvatarKey && previousAvatarKey !== nextAvatarKey) {
+        deleteFile(previousAvatarKey, "avatar").catch((err) =>
+          console.warn("Failed to delete previous avatar from R2:", err)
+        )
+      }
+
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current)
+        previewUrlRef.current = null
+      }
+      setPendingAvatarFile(null)
+      setPendingAvatarPreview(null)
+      setAvatarRemoved(false)
     } catch (err) {
       console.error("Failed to save profile:", err)
       toast.error(err instanceof Error ? err.message : "Enregistrement impossible.")
@@ -132,8 +214,40 @@ export function ProfileSection() {
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="flex items-center gap-4">
-            <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-teal-100 font-display text-lg font-bold text-teal-950">
-              {getInitials(fullName || user.name)}
+            <div className="relative shrink-0">
+              <div className="flex size-14 items-center justify-center overflow-hidden rounded-full bg-teal-100 font-display text-lg font-bold text-teal-950">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  getInitials(fullName || user.name)
+                )}
+              </div>
+              <Label
+                htmlFor="avatar-upload"
+                className="absolute -bottom-1 -right-1 flex size-6 cursor-pointer items-center justify-center rounded-full border-2 border-paper bg-teal-950 text-white transition-colors hover:bg-teal-900"
+                title="Changer la photo"
+              >
+                <Camera className="size-3" />
+              </Label>
+              <input
+                id="avatar-upload"
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarSelect}
+                disabled={savingProfile}
+                className="hidden"
+              />
+              {avatarUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveAvatar}
+                  className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-terracotta-600 text-white transition-colors hover:bg-terracotta-600/85"
+                  title="Supprimer la photo"
+                  aria-label="Supprimer la photo"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
             </div>
             <div className="min-w-0 space-y-1">
               <p className="font-display font-semibold text-ink truncate">

@@ -40,11 +40,7 @@ export function publicUrl(key: string | null | undefined): string | null {
   return `${PUBLIC_BASE_URL.replace(/\/$/, "")}/${key}`
 }
 
-async function requestSignedUrl(
-  kind: UploadKind,
-  contentType: string,
-  size: number
-): Promise<SignResponse["data"]> {
+async function callStorageSign<T>(body: Record<string, unknown>): Promise<T> {
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -58,13 +54,13 @@ async function requestSignedUrl(
         Authorization: `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ kind, contentType, size }),
+      body: JSON.stringify(body),
     }
   )
 
   const json = await res.json()
-  if (!res.ok) throw new Error(json.error || `Upload could not be authorized (${res.status})`)
-  return (json as SignResponse).data
+  if (!res.ok) throw new Error(json.error || `Requête refusée (${res.status})`)
+  return (json as { data: T }).data
 }
 
 /**
@@ -88,7 +84,12 @@ export async function uploadFile(file: File, kind: UploadKind): Promise<string> 
     }
   }
 
-  const { uploadUrl, key } = await requestSignedUrl(kind, payload.type, payload.size)
+  const { uploadUrl, key } = await callStorageSign<SignResponse["data"]>({
+    action: "sign",
+    kind,
+    contentType: payload.type,
+    size: payload.size,
+  })
 
   // The signature covers content-type, so it must match exactly what was signed.
   const putRes = await fetch(uploadUrl, {
@@ -106,4 +107,14 @@ export async function uploadFile(file: File, kind: UploadKind): Promise<string> 
   }
 
   return key
+}
+
+/**
+ * Delete a previously uploaded object. Call this only *after* the row that
+ * referenced the old key has been successfully updated to the new one — a
+ * best-effort cleanup that must never be allowed to undo a save that already
+ * succeeded. Callers should catch and log rather than surface this failing.
+ */
+export async function deleteFile(key: string, kind: UploadKind): Promise<void> {
+  await callStorageSign<{ deleted: true }>({ action: "delete", kind, key })
 }

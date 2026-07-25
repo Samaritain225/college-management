@@ -1,18 +1,13 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Upload, X, Save, Building, Calendar, Phone, MapPin, Lock } from "lucide-react"
 import { useSettings } from "@/lib/settings"
-import { compressImage } from "@/lib/image"
+import { uploadFile, deleteFile } from "@/lib/uploads"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-// The logo is persisted as a base64 data URL in localStorage, which shares a
-// ~5 MB quota with everything else stored there. Compressing on upload keeps
-// a phone photo in the tens-of-KB range instead of silently blowing the quota
-// (settings.tsx only console.errors a failed write, so an oversized logo used
-// to look like it saved and didn't).
 const MAX_LOGO_BYTES = 2 * 1024 * 1024
 
 /** Read-only presentation for roles that can't edit — deliberately a summary,
@@ -81,6 +76,7 @@ function EditableIdentity() {
   const {
     collegeName,
     collegeLogo,
+    collegeLogoKey,
     collegeAddress,
     collegePhone,
     academicYear,
@@ -88,30 +84,48 @@ function EditableIdentity() {
   } = useSettings()
 
   const [name, setName] = useState(collegeName)
-  const [logo, setLogo] = useState<string | null>(collegeLogo)
   const [address, setAddress] = useState(collegeAddress)
   const [phone, setPhone] = useState(collegePhone)
   const [year, setYear] = useState(academicYear)
-  const [uploading, setUploading] = useState(false)
+
+  // The new logo isn't uploaded to R2 until Save — selecting a file, then
+  // hitting Annuler/navigating away, should never leave an orphaned object
+  // in the bucket with nothing pointing at it.
+  const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null)
+  const [pendingLogoPreview, setPendingLogoPreview] = useState<string | null>(null)
+  const [logoRemoved, setLogoRemoved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const previewUrlRef = useRef<string | null>(null)
 
   // Re-seed if the stored settings change from elsewhere; local edits win
   // while the form is dirty, so this only ever syncs a clean form.
   useEffect(() => {
     setName(collegeName)
-    setLogo(collegeLogo)
     setAddress(collegeAddress)
     setPhone(collegePhone)
     setYear(academicYear)
-  }, [collegeName, collegeLogo, collegeAddress, collegePhone, academicYear])
+    setPendingLogoFile(null)
+    setPendingLogoPreview(null)
+    setLogoRemoved(false)
+  }, [collegeName, collegeLogoKey, collegeAddress, collegePhone, academicYear])
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    }
+  }, [])
+
+  const displayedLogo = logoRemoved ? null : pendingLogoPreview ?? collegeLogo
 
   const hasChanges =
     name !== collegeName ||
-    logo !== collegeLogo ||
     address !== collegeAddress ||
     phone !== collegePhone ||
-    year !== academicYear
+    year !== academicYear ||
+    pendingLogoFile !== null ||
+    logoRemoved
 
-  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleLogoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = "" // allow re-selecting the same file after an error
     if (!file) return
@@ -125,42 +139,74 @@ function EditableIdentity() {
       return
     }
 
-    setUploading(true)
-    try {
-      const compressed = await compressImage(file, { maxDimension: 512, quality: 0.85 })
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.onerror = () => reject(reader.error)
-        reader.readAsDataURL(compressed)
-      })
-      setLogo(dataUrl)
-    } catch (err) {
-      console.error("Logo compression failed:", err)
-      toast.error("Impossible de traiter cette image. Essayez un autre fichier.")
-    } finally {
-      setUploading(false)
-    }
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    const preview = URL.createObjectURL(file)
+    previewUrlRef.current = preview
+
+    setPendingLogoFile(file)
+    setPendingLogoPreview(preview)
+    setLogoRemoved(false)
   }
 
-  function handleSave(e: React.FormEvent) {
+  function handleRemoveLogo() {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+    setPendingLogoFile(null)
+    setPendingLogoPreview(null)
+    setLogoRemoved(true)
+  }
+
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) {
       toast.error("Le nom du collège est requis.")
       return
     }
+
+    setSaving(true)
+    const previousLogoKey = collegeLogoKey
+
     try {
-      updateSettings({
+      let nextLogoKey = collegeLogoKey
+      if (pendingLogoFile) {
+        nextLogoKey = await uploadFile(pendingLogoFile, "logo")
+      } else if (logoRemoved) {
+        nextLogoKey = null
+      }
+
+      await updateSettings({
         collegeName: name.trim(),
-        collegeLogo: logo,
+        collegeLogoKey: nextLogoKey,
         collegeAddress: address.trim(),
         collegePhone: phone.trim(),
         academicYear: year.trim(),
       })
+
       toast.success("Paramètres enregistrés.")
+
+      // Only remove the old object once the row pointing at the new one has
+      // safely committed — never the other way around. Best-effort: a
+      // failure here leaves an orphaned object, not a broken save.
+      if (previousLogoKey && previousLogoKey !== nextLogoKey) {
+        deleteFile(previousLogoKey, "logo").catch((err) =>
+          console.warn("Failed to delete previous logo from R2:", err)
+        )
+      }
+
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current)
+        previewUrlRef.current = null
+      }
+      setPendingLogoFile(null)
+      setPendingLogoPreview(null)
+      setLogoRemoved(false)
     } catch (err) {
       console.error("Failed to save settings:", err)
-      toast.error("Enregistrement impossible. Le logo est peut-être trop lourd.")
+      toast.error(err instanceof Error ? err.message : "Enregistrement impossible.")
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -175,12 +221,16 @@ function EditableIdentity() {
         <CardContent>
           <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
             <div className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-ink/15 bg-teal-100/30">
-              {logo ? (
+              {displayedLogo ? (
                 <>
-                  <img src={logo} alt="Logo du collège" className="h-full w-full object-contain p-2" />
+                  <img
+                    src={displayedLogo}
+                    alt="Logo du collège"
+                    className="h-full w-full object-contain p-2"
+                  />
                   <button
                     type="button"
-                    onClick={() => setLogo(null)}
+                    onClick={handleRemoveLogo}
                     className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-terracotta-600 text-white transition-colors hover:bg-terracotta-600/85"
                     title="Supprimer le logo"
                     aria-label="Supprimer le logo"
@@ -197,19 +247,19 @@ function EditableIdentity() {
               <Label htmlFor="logo-upload" className="cursor-pointer">
                 <div className="inline-flex items-center justify-center gap-2 rounded-lg border border-ink/15 bg-paper px-4 py-2 font-display text-sm font-medium text-ink transition-colors hover:bg-teal-100/50">
                   <Upload className="size-4 text-ink-soft" />
-                  {uploading ? "Traitement…" : "Choisir un fichier"}
+                  Choisir un fichier
                 </div>
               </Label>
               <input
                 id="logo-upload"
                 type="file"
                 accept="image/*"
-                onChange={handleLogoUpload}
-                disabled={uploading}
+                onChange={handleLogoSelect}
+                disabled={saving}
                 className="hidden"
               />
               <p className="text-xs text-ink-soft">
-                PNG ou JPG carré, 2 Mo maximum. L'image est compressée automatiquement.
+                PNG ou JPG carré, 2 Mo maximum. Envoyé lors de l'enregistrement.
               </p>
             </div>
           </div>
@@ -282,11 +332,11 @@ function EditableIdentity() {
 
       {/* Only appears once there's something to save — no permanently-greyed button. */}
       {hasChanges && (
-        <div className="sticky bottom-0 flex items-center justify-end gap-3 rounded-lg border border-ink/10 bg-paper/95 p-3 backdrop-blur-none">
+        <div className="sticky bottom-0 flex items-center justify-end gap-3 rounded-lg border border-ink/10 bg-paper/95 p-3">
           <span className="mr-auto text-xs text-ink-soft">Modifications non enregistrées</span>
-          <Button type="submit" disabled={uploading} className="flex items-center gap-2 font-display">
+          <Button type="submit" disabled={saving} className="flex items-center gap-2 font-display">
             <Save className="size-4" />
-            Enregistrer
+            {saving ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </div>
       )}
