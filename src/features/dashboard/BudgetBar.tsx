@@ -32,7 +32,7 @@ export function BudgetBar({ totalPool, spentByCategory }: BudgetBarProps) {
           animation: slideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
       `}</style>
-      <div className="flex h-8 w-full overflow-hidden rounded-lg border border-border bg-slate-50">
+      <div className="flex h-8 w-full overflow-hidden rounded-lg border border-ink/10 bg-paper">
         {spentByCategory.map((cat) => (
           <div
             key={cat.name}
@@ -47,18 +47,18 @@ export function BudgetBar({ totalPool, spentByCategory }: BudgetBarProps) {
         />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-sm">
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-xs">
         {spentByCategory.map((cat) => (
           <div key={cat.name} className="flex items-center gap-2">
             <span className={cn(cat.color, "h-3 w-3 rounded-full")} />
-            <span className="text-muted-foreground">{cat.name}</span>
-            <span className="font-semibold text-foreground">{formatMoney(cat.amount)}</span>
+            <span className="text-ink-soft font-display font-medium">{cat.name}</span>
+            <span className="font-semibold text-ink">{formatMoney(cat.amount)}</span>
           </div>
         ))}
         <div className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded-full border border-border bg-slate-50" />
-          <span className="text-muted-foreground">Restant</span>
-          <span className="font-semibold text-foreground">{formatMoney(remaining)}</span>
+          <span className="h-3 w-3 rounded-full border border-ink/10 bg-paper" />
+          <span className="text-ink-soft font-display font-medium">Restant</span>
+          <span className="font-semibold text-ink">{formatMoney(remaining)}</span>
         </div>
       </div>
     </div>

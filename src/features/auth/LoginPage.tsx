@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useSettings } from "@/lib/settings"
 import { useAuth } from "@/lib/auth"
-import { isApiError } from "@/lib/api"
 import { Lock, Pencil, Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
 
@@ -53,19 +52,19 @@ export function LoginPage() {
       const user = await login(email, password)
       toast.success(`Bon retour, ${user.name} !`)
     } catch (err) {
-      if (isApiError(err)) {
-        if (err.status === 403) {
-          // Deactivated account - longer duration (10s) and explicit message
-          toast.error(err.message || "Compte désactivé. Veuillez contacter un administrateur.", {
-            duration: 10000,
-          })
-        } else {
-          // 401 Wrong credentials or other api errors
-          toast.error(err.message || "Identifiants incorrects.")
-        }
-      } else {
-        // Network connection error
+      // Supabase's own guidance: match on .code/.name, never on message text.
+      const code = (err as { code?: string } | undefined)?.code
+      const status = (err as { status?: number } | undefined)?.status
+
+      if (code === "user_banned") {
+        toast.error("Compte désactivé. Veuillez contacter un administrateur.", { duration: 10000 })
+      } else if (code === "invalid_credentials") {
+        toast.error("Identifiants incorrects.")
+      } else if (status === undefined) {
+        // No HTTP status at all means the request never reached the server.
         toast.error("Impossible de contacter le serveur — vérifiez votre connexion.")
+      } else {
+        toast.error((err as Error)?.message || "Une erreur inattendue est survenue. Réessayez.")
       }
     } finally {
       setSubmitting(false)
@@ -73,13 +72,13 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-screen bg-white font-sans">
+    <div className="flex min-h-screen w-screen bg-paper font-sans">
       {/* Left Column: Form Panel */}
-      <div className="flex w-full flex-col justify-center px-6 py-12 md:w-1/2 lg:px-16 xl:px-24 bg-white">
+      <div className="flex w-full flex-col justify-center px-6 py-12 md:w-1/2 lg:px-16 xl:px-24 bg-paper">
         <div className="mx-auto w-full max-w-sm space-y-8">
           {/* Logo / Header */}
           <div className="flex flex-col items-center text-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground font-semibold text-lg overflow-hidden shadow-xs">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-teal-950 text-white font-display font-semibold text-lg overflow-hidden shadow-xs">
               {collegeLogo ? (
                 <img src={collegeLogo} alt="Logo" className="h-full w-full object-cover" />
               ) : (
@@ -87,40 +86,41 @@ export function LoginPage() {
               )}
             </div>
             <div>
-              <h2 className="text-xl font-bold tracking-tight text-foreground">
+              <h2 className="text-xl font-display font-bold tracking-tight text-ink">
                 Connexion · {collegeName}
               </h2>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-ink-soft mt-1">
                 Accédez à votre espace de gestion budgétaire
               </p>
             </div>
           </div>
 
           {/* Login Card */}
-          <Card className="border border-border/80 shadow-xs">
+          <Card className="border border-ink/10 bg-paper shadow-xs">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Lock className="size-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-display font-semibold flex items-center gap-2 text-ink">
+                <Lock className="size-4 text-ink-soft" />
                 Saisir vos identifiants
               </CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="login-email">Email professionnel</Label>
+                  <Label htmlFor="login-email" className="text-xs font-display font-medium text-ink">Email professionnel</Label>
                   <Input
                      id="login-email"
                      type="email"
                      value={email}
                      onChange={(e) => setEmail(e.target.value)}
                      placeholder="nom@college.ci"
+                     className="border-ink/15 bg-paper text-ink text-sm"
                      required
                      disabled={submitting}
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="login-password">Mot de passe</Label>
+                  <Label htmlFor="login-password" className="text-xs font-display font-medium text-ink">Mot de passe</Label>
                   <div className="relative">
                     <Input
                       id="login-password"
@@ -128,14 +128,14 @@ export function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="pr-10"
+                      className="pr-10 border-ink/15 bg-paper text-ink text-sm"
                       required
                       disabled={submitting}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((prev) => !prev)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-hidden"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-soft hover:text-ink focus:outline-hidden"
                     >
                       {showPassword ? (
                         <EyeOff className="size-4" />
@@ -146,7 +146,7 @@ export function LoginPage() {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full mt-2" disabled={submitting}>
+                <Button type="submit" className="w-full mt-2 font-display" disabled={submitting}>
                   {submitting ? "Connexion en cours…" : "Se connecter"}
                 </Button>
               </form>
@@ -156,7 +156,7 @@ export function LoginPage() {
       </div>
 
       {/* Right Column: Visual Artwork (hidden on small devices) */}
-      <div className="hidden w-1/2 md:flex items-center justify-center p-4 lg:p-6 select-none bg-white">
+      <div className="hidden w-1/2 md:flex items-center justify-center p-4 lg:p-6 select-none bg-paper">
         <div className="relative w-full h-full overflow-hidden rounded-2xl border border-border/40 shadow-lg">
           {/* Full screen image layout */}
           <img
@@ -202,7 +202,7 @@ export function LoginPage() {
               </p>
 
               <div className="flex items-center gap-2.5 mt-4 pt-3 border-t border-white/5 w-full text-white/90">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-white shadow-xs">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-paper/15 text-white shadow-xs">
                   <Pencil className="size-3" />
                 </div>
                 <span

@@ -1,8 +1,7 @@
 node_modules
 dist
-*.db
-*.db-shm
-*.db-wal
+.DS_Store
 .env
 .env.*
-src-tauri/target
+!.env.example
+.claude/settings.local.json

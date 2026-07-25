@@ -1,68 +1,76 @@
 # Wagnon Budget
 
-An offline-first expense and contribution tracker for Wagnon College, built as a robust foundation that will later expand into a full school management system (teachers, students, timetables) without requiring a rewrite.
+A finance-tracking app for **Wagnon**, a private college in Côte d'Ivoire
+recently acquired by a group of investors. It replaces a paper notebook
+for tracking investor contributions and college expenses — phase one of a
+larger vision to grow into a full school management system (teachers,
+students, timetables, grades).
 
-## Technology Stack
+## Stack
 
-- **Frontend Core**: React 19 + Vite 8 + TypeScript.
-- **Styling**: Tailwind CSS v4 + Hand-built Shadcn UI components (`src/components/ui`).
-- **Local Database**: libSQL/Turso (`@libsql/client`) – works fully offline (file-based or in-memory) and syncs to a remote Turso DB opportunistically when online.
-- **Desktop/Mobile Native Container**: Tauri v2 wrapper configured (`src-tauri`).
+- **Frontend** — Vite + React 19 + TypeScript, a static SPA (no SSR —
+  every screen is behind login). Deploy target is Cloudflare Pages.
+- **Backend** — [Supabase](https://supabase.com): Postgres, Auth, Edge
+  Functions. RLS enforces multi-college scoping and role-based access
+  directly in the database.
+- **Styling** — Tailwind CSS v4 + shadcn-style primitives.
 
----
+No AdonisJS, no Tauri, no libSQL/Turso — all three were removed during the
+Supabase migration (see [`docs/refactor-plan.md`](docs/refactor-plan.md)
+for why).
 
-## Core Architectural Rules & Conventions
+## Getting started
 
-### 1. Offline-First & Sync Mechanics
-This application relies on a local-first schema designed to prevent replication conflicts:
-- **Strict Append-Only**: Financial tables (`expenses`, `contributions`, `investors`, `budget_categories`) are **append-only**.
-- **No Direct Edits/Deletions**: Once synced, records are never updated or deleted. Corrections are made by inserting a reversing row (e.g. expenses use a `reverses_expense_id` field).
-- **Opportunistic Synchronization**: Syncing is performed using `@libsql/client` background replication (`client.sync()`) targeting a remote Turso DB, ensuring eventual consistency.
-
-### 2. Currency (XOF) Calculations
-- The app handles **XOF (West African CFA franc)**.
-- **Integer Representation**: Since XOF has no cents/minor subdivisions, all currency values are represented and stored as **integers**. No floats or divisions should be used in monetary states.
-
----
-
-## Project Structure
-
-```text
-├── .agents/               # Custom workspace rules and agent skills
-├── docs/                  # Detailed architectural context documents
-├── src-tauri/             # Tauri native configuration and source code
-├── src/
-│   ├── components/        # Global components (ActiveUserBar, AppSidebar)
-│   │   └── ui/            # UI components (Radix primitives, theme layout)
-│   ├── db/                # libSQL DB Client, local queries, and SQL schema
-│   ├── features/          # Feature-based pages (auth, dashboard, expenses, settings, users)
-│   ├── lib/               # Custom hooks and context (settings, active-user)
-│   └── main.tsx           # Application entry point
+```bash
+npm install
+cp .env.example .env.local   # fill in your Supabase project's URL + publishable key
+npm run dev
 ```
 
----
+The app opens at `http://localhost:5173`. You'll need a Supabase project
+with the migrations in `supabase/migrations/` applied and at least one
+user seeded with a role in `user_roles` — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the full local-setup workflow.
 
-## Getting Started
+## Scripts
 
-### Local Web Development
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Launch Vite development server:
-   ```bash
-   npm run dev
-   ```
-3. Opens at `http://localhost:1420`. The local database is created automatically on first load.
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Start the Vite dev server |
+| `npm run build` | Type-check (`tsc -b`) then production build |
+| `npm run preview` | Preview the production build locally |
+| `npm run lint` | Run oxlint |
 
-### Tauri Desktop Wrapper
-To build or preview the native desktop wrapper:
-- **Run dev app**: `npm run desktop:dev`
-- **Build production binary**: `npm run desktop:build`
+## Project structure
 
----
+```text
+├── .agents/AGENTS.md      # compressed project context for AI agents — read this first
+├── docs/                  # architecture decisions, phase checklists
+├── supabase/
+│   ├── migrations/        # applied schema, in order
+│   └── functions/         # Edge Functions (service-role operations only)
+├── src/
+│   ├── components/        # shared components (AppSidebar, ActiveUserBar)
+│   │   └── ui/             # shadcn-style primitives
+│   ├── features/          # one folder per screen (dashboard, expenses, investors, users, settings, auth)
+│   ├── lib/                # supabase client, queries.ts (data layer), auth context
+│   └── App.tsx             # shell, routing (tab-based, no router), providers
+```
 
-## Demonstration Credentials
-The database seeds a default administrator account automatically upon initialization:
-- **Email**: `admin@college.ci`
-- **PIN/Password**: `1234`
+## Data model, in brief
+
+- Everything is scoped by `college_id` — single-tenant in practice today,
+  multi-tenant-ready in the schema.
+- Financial ledger tables (`contributions`, `expenses`, `expense_payments`,
+  `other_income`) are **append-only**. Corrections are new rows, never
+  edits — see `.agents/AGENTS.md` for why this matters.
+- Derived numbers (ownership %, reliquat, pool totals) are database views,
+  never stored columns.
+- Roles are many-to-many (`user_roles`) — a person can be an investor and
+  a teacher at once.
+
+Full schema reasoning: [`docs/refactor-plan.md`](docs/refactor-plan.md).
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
