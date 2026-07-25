@@ -1,16 +1,10 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, lazy, Suspense } from "react"
 import { ThemeProvider } from "@/lib/theme"
-import { Dashboard } from "@/features/dashboard/Dashboard"
-import { InvestorsPage } from "@/features/investors/InvestorsPage"
-import { ExpensesPage } from "@/features/expenses/ExpensesPage"
-import { UsersPage } from "@/features/users/UsersPage"
 import { ActiveUserBar } from "@/components/ActiveUserBar"
 import { AuthProvider, useAuth, RequireAuth, RequireRole } from "@/lib/auth"
-import { initDb } from "@/db/client"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppSidebar } from "@/components/AppSidebar"
-import { SettingsPage } from "@/features/settings/SettingsPage"
 import { SettingsProvider, useSettings } from "@/lib/settings"
 import { Toaster } from "@/components/ui/sonner"
 import { Separator } from "@/components/ui/separator"
@@ -25,6 +19,36 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
+
+// Route-level code splitting — each feature page ships its own chunk, loaded
+// only when its tab is first visited.
+const Dashboard = lazy(() =>
+  import("@/features/dashboard/Dashboard").then((m) => ({ default: m.Dashboard }))
+)
+const InvestorsPage = lazy(() =>
+  import("@/features/investors/InvestorsPage").then((m) => ({ default: m.InvestorsPage }))
+)
+const ExpensesPage = lazy(() =>
+  import("@/features/expenses/ExpensesPage").then((m) => ({ default: m.ExpensesPage }))
+)
+const UsersPage = lazy(() =>
+  import("@/features/users/UsersPage").then((m) => ({ default: m.UsersPage }))
+)
+const SettingsPage = lazy(() =>
+  import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage }))
+)
+
+function PageFallback() {
+  return (
+    <div className="mx-auto max-w-5xl px-6 py-8 animate-pulse space-y-6">
+      <div className="space-y-2">
+        <div className="h-8 w-48 bg-ink/10 rounded" />
+        <div className="h-4 w-64 bg-ink/10 rounded" />
+      </div>
+      <div className="h-64 bg-ink/10 rounded-xl" />
+    </div>
+  )
+}
 
 type Tab = "dashboard" | "investors" | "expenses" | "categories" | "users" | "settings" | "profile" | "teachers" | "students" | "classes"
 
@@ -64,7 +88,9 @@ function AppShell() {
   const { collegeName } = useSettings()
   const [tab, setTab] = useState<Tab>("dashboard")
   const [refreshKey, setRefreshKey] = useState(0)
-  const [dbReady, setDbReady] = useState(false)
+  // Local libSQL init is gone (Phase 0 cleanup); kept as a prop on feature
+  // pages so their loading-gate signature didn't need to change.
+  const dbReady = true
 
   // Breadcrumbs states
   const [subBreadcrumbs, setSubBreadcrumbs] = useState<string[]>([])
@@ -72,15 +98,6 @@ function AppShell() {
 
   // Cross-tab routing sub-view state
   const [selectedUserIdForTab, setSelectedUserIdForTab] = useState<string | null>(null)
-
-  useEffect(() => {
-    initDb()
-      .then(() => setDbReady(true))
-      .catch((err) => {
-        console.error("Failed to initialise local database:", err)
-        setDbReady(true) // Non-fatal — app still usable without local DB
-      })
-  }, [])
 
   // Reset sub-breadcrumbs when base tab changes
   useEffect(() => {
@@ -191,6 +208,7 @@ function AppShell() {
           </header>
           <main className="flex-1 overflow-y-auto mx-2 mb-2 sm:mx-4 sm:mb-4 md:mx-6 md:mb-6 border border-ink/10 bg-paper rounded-lg sm:rounded-xl shadow-xs">
             <div className="h-full">
+            <Suspense fallback={<PageFallback />}>
               {effectiveTab === "dashboard" && (
                 <Dashboard
                   refreshKey={refreshKey}
@@ -250,6 +268,7 @@ function AppShell() {
               {effectiveTab === "teachers" && <TeachersPage />}
               {effectiveTab === "students" && <StudentsPage />}
               {effectiveTab === "classes" && <ClassesPage />}
+            </Suspense>
             </div>
           </main>
         </SidebarInset>

@@ -48,7 +48,7 @@ import {
   listExpenses,
   type BudgetCategory,
   type Expense,
-} from "@/db/queries"
+} from "@/lib/queries"
 import {
   Eye,
   FileText,
@@ -260,8 +260,6 @@ export function ExpensesPage({
         amount: numericAmt,
         description: description.trim(),
         spentAt: dateObj.toISOString(),
-        recordedBy: user.id,
-        recorderName: user.name,
         receiptPhotoPath: receiptPhotoPath.trim() || undefined,
       })
 

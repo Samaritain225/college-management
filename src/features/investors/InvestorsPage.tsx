@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/utils"
-import { useAuth } from "@/lib/auth"
 import { api } from "@/lib/api"
 import {
   addInvestor,
@@ -29,7 +28,7 @@ import {
   listContributions,
   type InvestorStanding,
   type Contribution,
-} from "@/db/queries"
+} from "@/lib/queries"
 import { toast } from "sonner"
 import {
   UserPlus,
@@ -68,7 +67,6 @@ export function InvestorsPage({
   onBreadcrumbChange,
   backTrigger,
 }: InvestorsPageProps) {
-  const { user: me } = useAuth()
   const [standings, setStandings] = useState<InvestorStanding[]>([])
   const [users, setUsers] = useState<LinkableUser[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -174,7 +172,6 @@ export function InvestorsPage({
         phone: createPhone.trim() || null,
         agreedContribution: amount,
         userId: createUserId === "none" ? null : createUserId,
-        addedBy: me?.id,
       })
 
       toast.success("Investisseur enregistré avec succès.")

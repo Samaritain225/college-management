@@ -3,20 +3,8 @@
 // Token persistence strategy
 // ---------------------------
 // We use localStorage for the access token, refresh token, token issue time,
-// and cached user. The Tauri Store/Stronghold migration has not happened yet.
-//
-// In the Tauri desktop build, the WebView's localStorage lives in the app's
-// sandboxed local data directory (OS-managed, per-device). It is NOT part of
-// the Turso/libSQL sync path, so the token never replicates to other devices.
-// This satisfies the requirement: "token must be cached in local secure
-// storage — NOT in the synced Turso/libSQL database."
-//
-// In a plain browser dev session (npm run dev, no Tauri), localStorage is the
-// browser's storage — also acceptable for development only.
-//
-// The Tauri Store plugin (tauri-plugin-store) would provide OS-level keychain
-// integration and can be added as a later hardening step without changing this
-// file's public API — just swap the read/write helpers below.
+// and cached user. It's per-device and per-browser, which is what we want —
+// the token should never travel through the app's own sync path.
 //
 // Offline-first behaviour
 // -----------------------
@@ -99,7 +87,6 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 // ---------------------------------------------------------------------------
 // Storage helpers
-// (Swap these functions to migrate to tauri-plugin-store later)
 // ---------------------------------------------------------------------------
 
 const TOKEN_KEY = "college-budget:auth-token"
