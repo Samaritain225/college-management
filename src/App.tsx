@@ -5,6 +5,8 @@ import { AuthProvider, useAuth, RequireAuth, RequireRole } from "@/lib/auth"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppSidebar } from "@/components/AppSidebar"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
+import { NotFoundView } from "@/components/NotFoundView"
 import { SettingsProvider, useSettings } from "@/lib/settings"
 import { Toaster } from "@/components/ui/sonner"
 import { Separator } from "@/components/ui/separator"
@@ -65,6 +67,27 @@ const tabLabels: Record<Tab, string> = {
   classes: "Classes",
 }
 
+// Runtime membership check for the "unrecognized tab" fallback below — the
+// `Tab` union covers this statically, but state can outlive the code that
+// produced it, so this guards against silently rendering nothing.
+const KNOWN_TABS = new Set<string>(Object.keys(tabLabels))
+
+// Session-only (not localStorage): a reload/return-to-tab restores where the
+// user was, but a genuinely new browser session still opens on the
+// dashboard — there's no router/URL sync, so this is the tab position's only
+// memory.
+const LAST_TAB_KEY = "wagnon:lastTab"
+
+function readLastTab(): Tab {
+  try {
+    const stored = sessionStorage.getItem(LAST_TAB_KEY)
+    if (stored && KNOWN_TABS.has(stored)) return stored as Tab
+  } catch {
+    // sessionStorage unavailable (private browsing, etc.) — fall through
+  }
+  return "dashboard"
+}
+
 const tabOrder: Record<Tab, number> = {
   dashboard: 0,
   teachers: 1,
@@ -86,7 +109,7 @@ const tabOrder: Record<Tab, number> = {
 function AppShell() {
   const { user } = useAuth()
   const { collegeName } = useSettings()
-  const [tab, setTab] = useState<Tab>("dashboard")
+  const [tab, setTab] = useState<Tab>(readLastTab)
   const [refreshKey, setRefreshKey] = useState(0)
   // Local libSQL init is gone (Phase 0 cleanup); kept as a prop on feature
   // pages so their loading-gate signature didn't need to change.
@@ -102,6 +125,15 @@ function AppShell() {
   // Reset sub-breadcrumbs when base tab changes
   useEffect(() => {
     setSubBreadcrumbs([])
+  }, [tab])
+
+  // Remember the active tab so a reload returns here instead of the dashboard.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(LAST_TAB_KEY, tab)
+    } catch {
+      // sessionStorage unavailable — losing tab memory is a non-issue
+    }
   }, [tab])
 
   // Safe to assert user is not null here since RequireAuth wraps this component
@@ -141,7 +173,7 @@ function AppShell() {
       <SidebarProvider
         style={
           {
-            "--sidebar-width": "16rem",
+            "--sidebar-width": "14rem",
             "--header-height": "3.5rem",
           } as React.CSSProperties
         }
@@ -208,6 +240,7 @@ function AppShell() {
           </header>
           <main className="flex-1 overflow-y-auto mx-2 mb-2 sm:mx-4 sm:mb-4 md:mx-6 md:mb-6 border border-ink/10 bg-paper rounded-lg sm:rounded-xl shadow-xs">
             <div className="h-full">
+            <ErrorBoundary key={effectiveTab}>
             <Suspense fallback={<PageFallback />}>
               {effectiveTab === "dashboard" && (
                 <Dashboard
@@ -268,7 +301,11 @@ function AppShell() {
               {effectiveTab === "teachers" && <TeachersPage />}
               {effectiveTab === "students" && <StudentsPage />}
               {effectiveTab === "classes" && <ClassesPage />}
+              {!KNOWN_TABS.has(effectiveTab) && (
+                <NotFoundView onGoHome={() => transitionToTab("dashboard")} />
+              )}
             </Suspense>
+            </ErrorBoundary>
             </div>
           </main>
         </SidebarInset>

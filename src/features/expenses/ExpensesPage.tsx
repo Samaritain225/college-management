@@ -1,10 +1,19 @@
-import { useEffect, useState, useMemo } from "react"
-import { format } from "date-fns"
-import { fr } from "date-fns/locale"
+import { PeriodFilter } from "@/components/PeriodFilter"
+import { StatCard } from "@/components/StatCard"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -13,6 +22,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import {
   Table,
   TableBody,
   TableCell,
@@ -20,51 +36,38 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { formatMoney, cn } from "@/lib/utils"
+import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth"
+import { isDateInPeriod, type Period } from "@/lib/period"
 import {
-  addExpense,
   addCategory,
+  addExpense,
   listCategories,
   listExpenses,
   type BudgetCategory,
   type Expense,
 } from "@/lib/queries"
+import { cn, formatMoney } from "@/lib/utils"
+import { format, startOfToday } from "date-fns"
+import { fr } from "date-fns/locale"
 import {
+  ArrowRight,
+  Calculator,
+  Calendar as CalendarIcon,
+  Clock,
   Eye,
   FileText,
-  Calendar as CalendarIcon,
-  User,
-  Receipt,
-  XCircle,
-  Plus,
   FolderPlus,
   FolderTree,
-  ArrowRight,
+  Plus,
+  Receipt,
   Search,
+  User,
   Wallet,
-  Calculator,
-  Clock,
+  XCircle,
+  Paperclip,
 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 
 function formatAmountInput(val: string): string {
   const digits = val.replace(/\D/g, "")
@@ -73,30 +76,8 @@ function formatAmountInput(val: string): string {
 }
 
 type TabMode = "expenses" | "categories"
-type Period = "all" | "this_month" | "this_quarter" | "this_year"
 
-function isDateInPeriod(dateStr: string, period: Period): boolean {
-  if (period === "all") return true
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return true
-  const now = new Date()
-
-  if (period === "this_month") {
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
-  }
-
-  if (period === "this_quarter") {
-    const currentQ = Math.floor(now.getMonth() / 3)
-    const dateQ = Math.floor(d.getMonth() / 3)
-    return d.getFullYear() === now.getFullYear() && dateQ === currentQ
-  }
-
-  if (period === "this_year") {
-    return d.getFullYear() === now.getFullYear()
-  }
-
-  return true
-}
+let expensesCache: { expenses: Expense[]; categories: BudgetCategory[] } | null = null
 
 export function ExpensesPage({
   onChange,
@@ -110,9 +91,9 @@ export function ExpensesPage({
   onNavigateToTab?: (tab: any) => void
 }) {
   const { user } = useAuth()
-  const [expenses, setExpenses] = useState<Expense[]>([])
-  const [categories, setCategories] = useState<BudgetCategory[]>([])
-  const [loading, setLoading] = useState(true)
+  const [expenses, setExpenses] = useState<Expense[]>(expensesCache?.expenses ?? [])
+  const [categories, setCategories] = useState<BudgetCategory[]>(expensesCache?.categories ?? [])
+  const [loading, setLoading] = useState(!expensesCache)
   const [activeTab, setActiveTab] = useState<TabMode>(mode)
 
   useEffect(() => {
@@ -127,7 +108,7 @@ export function ExpensesPage({
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
   const [receiptPhotoPath, setReceiptPhotoPath] = useState("")
-  const [spentAtDate, setSpentAtDate] = useState<Date | undefined>(new Date())
+  const [spentAtDate, setSpentAtDate] = useState<Date | undefined>(startOfToday())
   const [fieldErrors, setFieldErrors] = useState<{
     category?: string
     amount?: string
@@ -167,6 +148,7 @@ export function ExpensesPage({
     if (!dbReady) return
     try {
       const [exp, cats] = await Promise.all([listExpenses(), listCategories()])
+      expensesCache = { expenses: exp, categories: cats }
       setExpenses(exp)
       setCategories(cats)
       if (!categoryId && cats[0]) setCategoryId(cats[0].id)
@@ -188,7 +170,7 @@ export function ExpensesPage({
     setAmount("")
     setDescription("")
     setReceiptPhotoPath("")
-    setSpentAtDate(new Date())
+    setSpentAtDate(startOfToday())
     setFieldErrors({})
   }
 
@@ -447,97 +429,39 @@ export function ExpensesPage({
         <div className="space-y-4">
           {/* Period Filter (Right-aligned under header line, above KPI cards) */}
           <div className="flex justify-end items-center">
-            <Select value={selectedPeriod} onValueChange={(v) => setSelectedPeriod(v as Period)}>
-              <SelectTrigger className="h-8 w-44 bg-paper border-ink/15 text-xs text-ink font-display font-semibold">
-                <CalendarIcon className="size-3.5 mr-1.5 text-ink-soft shrink-0" />
-                <SelectValue placeholder="Période" />
-              </SelectTrigger>
-              <SelectContent className="bg-paper border-ink/10">
-                <SelectItem value="all">Toutes les périodes</SelectItem>
-                <SelectItem value="this_month">Ce mois-ci</SelectItem>
-                <SelectItem value="this_quarter">Ce trimestre</SelectItem>
-                <SelectItem value="this_year">Cette année ({new Date().getFullYear()})</SelectItem>
-              </SelectContent>
-            </Select>
+            <PeriodFilter value={selectedPeriod} onChange={setSelectedPeriod} className="w-50" />
           </div>
 
           {/* KPI Cards Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="border border-ink/10 shadow-2xs hover:shadow-xs transition-shadow bg-paper">
-              <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-                <CardTitle className="text-xs font-display font-semibold text-ink-soft">
-                  Nombre de dépenses
-                </CardTitle>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100 text-teal-950">
-                  <Receipt className="size-4" />
-                </div>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <div className="text-2xl font-display font-bold tracking-tight text-ink">
-                  {expenseKpis.totalCount}
-                </div>
-                <p className="text-xs text-ink-soft mt-1">
-                  Enregistrées au total
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-ink/10 shadow-2xs hover:shadow-xs transition-shadow bg-paper">
-              <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-                <CardTitle className="text-xs font-display font-semibold text-ink-soft">
-                  Montant total
-                </CardTitle>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100 text-teal-950">
-                  <Wallet className="size-4" />
-                </div>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <div className="text-2xl font-display font-bold tracking-tight text-ink">
-                  {formatMoney(expenseKpis.totalAmount)}
-                </div>
-                <p className="text-xs text-ink-soft mt-1">
-                  Cumul des sorties de caisse
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-ink/10 shadow-2xs hover:shadow-xs transition-shadow bg-paper">
-              <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-                <CardTitle className="text-xs font-display font-semibold text-ink-soft">
-                  Dépense moyenne
-                </CardTitle>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100 text-teal-950">
-                  <Calculator className="size-4" />
-                </div>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <div className="text-2xl font-display font-bold tracking-tight text-ink">
-                  {formatMoney(expenseKpis.avgAmount)}
-                </div>
-                <p className="text-xs text-ink-soft mt-1">
-                  Moyenne par opération
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-ink/10 shadow-2xs hover:shadow-xs transition-shadow bg-paper">
-              <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-                <CardTitle className="text-xs font-display font-semibold text-ink-soft">
-                  Aujourd'hui
-                </CardTitle>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100 text-teal-950">
-                  <Clock className="size-4" />
-                </div>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <div className="text-2xl font-display font-bold tracking-tight text-ink">
-                  {formatMoney(expenseKpis.todayAmount)}
-                </div>
-                <p className="text-xs text-ink-soft mt-1">
-                  {expenseKpis.todayCount} dépense(s) aujourd'hui
-                </p>
-              </CardContent>
-            </Card>
+            <StatCard
+              variant="card"
+              label="Nombre de dépenses"
+              value={expenseKpis.totalCount}
+              icon={Receipt}
+              footer="Enregistrées au total"
+            />
+            <StatCard
+              variant="card"
+              label="Montant total"
+              value={formatMoney(expenseKpis.totalAmount)}
+              icon={Wallet}
+              footer="Cumul des sorties de caisse"
+            />
+            <StatCard
+              variant="card"
+              label="Dépense moyenne"
+              value={formatMoney(expenseKpis.avgAmount)}
+              icon={Calculator}
+              footer="Moyenne par opération"
+            />
+            <StatCard
+              variant="card"
+              label="Aujourd'hui"
+              value={formatMoney(expenseKpis.todayAmount)}
+              icon={Clock}
+              footer={`${expenseKpis.todayCount} dépense(s) aujourd'hui`}
+            />
           </div>
 
           {/* Search & Category Filters */}
@@ -869,6 +793,7 @@ export function ExpensesPage({
                       selected={spentAtDate}
                       onSelect={setSpentAtDate}
                       locale={fr}
+                      disabled={{ after: startOfToday() }}
                     />
                   </PopoverContent>
                 </Popover>
@@ -1012,7 +937,10 @@ export function ExpensesPage({
 
       {/* ----------------- DETAILS SLIDE-OVER SHEET ----------------- */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-md p-6 bg-paper border-l border-ink/10">
+        <SheetContent
+          className="w-full sm:max-w-md p-6 bg-paper border-l border-ink/10"
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
           {selectedExpense && (
             <div className="space-y-6 h-full flex flex-col">
               <SheetHeader className="space-y-1">
@@ -1071,23 +999,30 @@ export function ExpensesPage({
                   </div>
                 </div>
 
-                {/* Status Badges */}
-                <div className="pt-2 flex flex-wrap gap-2">
-                  {selectedExpense.reverses_expense_id ? (
+                {/* Attached Document Placeholder */}
+                <div className="space-y-1.5 pt-2">
+                  <span className="text-xs font-display font-semibold text-ink-soft flex items-center gap-1.5">
+                    <Paperclip className="size-4" /> Justificatif / Pièce jointe
+                  </span>
+                  <div className="border border-dashed border-ink/20 rounded-lg p-4 text-center bg-teal-100/10">
+                    <Paperclip className="size-5 mx-auto text-ink-soft mb-1.5" />
+                    <p className="text-xs font-medium text-ink-soft">
+                      Aucun fichier joint à cette dépense
+                    </p>
+                    <p className="text-[11px] text-ink-soft/70 mt-0.5">
+                      Formats acceptés : PDF, PNG, JPG
+                    </p>
+                  </div>
+                </div>
+
+                {/* Status Badges - ONLY for cancellation/reversals */}
+                {selectedExpense.reverses_expense_id && (
+                  <div className="pt-2 flex flex-wrap gap-2">
                     <Badge variant="negative" className="flex items-center gap-1">
                       <XCircle className="size-3.5" /> Ajusté / Annulé
                     </Badge>
-                  ) : (
-                    <Badge variant="positive">Transaction Validée</Badge>
-                  )}
-                </div>
-              </div>
-
-              {/* Close Action */}
-              <div className="pt-4 border-t border-ink/10 mt-auto">
-                <Button className="w-full" variant="outline" onClick={() => setSheetOpen(false)}>
-                  Fermer
-                </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}

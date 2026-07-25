@@ -6,7 +6,6 @@ export interface CollegeSettings {
   collegeAddress: string
   collegePhone: string
   academicYear: string
-  theme: "light" | "dark"
 }
 
 interface SettingsContextType extends CollegeSettings {
@@ -19,7 +18,6 @@ const defaultSettings: CollegeSettings = {
   collegeAddress: "",
   collegePhone: "",
   academicYear: "2025 - 2026",
-  theme: "light",
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined)
@@ -43,14 +41,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error("Failed to save settings:", e)
     }
-
-    // Apply class to documentElement
-    const root = window.document.documentElement
-    if (settings.theme === "dark") {
-      root.classList.add("dark")
-    } else {
-      root.classList.remove("dark")
-    }
+    // Light/dark mode is owned exclusively by ThemeProvider (src/lib/theme.tsx).
+    // This provider must never touch the `.dark` class — doing so previously
+    // caused every settings save to silently revert the user's chosen theme.
   }, [settings])
 
   const updateSettings = (newSettings: Partial<CollegeSettings>) => {

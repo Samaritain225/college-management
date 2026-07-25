@@ -38,6 +38,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import {
   UserPlus,
   Ban,
   RefreshCw,
@@ -327,7 +335,7 @@ export function UsersPage({
           {/* Header Card */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-paper p-6 border border-ink/10 rounded-xl shadow-xs">
             <div className="flex items-center gap-4">
-              <div className="flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-lg">
+              <div className="flex size-14 items-center justify-center rounded-full bg-teal-100 text-teal-950 font-display font-bold text-lg">
                 {detailUser.name.charAt(0).toUpperCase()}
               </div>
               <div className="space-y-1">
@@ -541,85 +549,117 @@ export function UsersPage({
             {users.length} {users.length > 1 ? "membres" : "membre"} enregistrés · {totalActive} actifs
           </p>
         </div>
-        <Button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-2 font-display">
+        <Button onClick={() => setShowForm(true)} className="flex items-center gap-2 font-display">
           <UserPlus className="size-4" />
-          {showForm ? "Annuler" : "Nouvel utilisateur"}
+          Nouvel utilisateur
         </Button>
       </header>
 
-      {/* Create form */}
-      {showForm && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-foreground font-semibold text-base">Créer un utilisateur</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cu-name">Nom complet *</Label>
-                <Input
-                  id="cu-name"
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="Ex. Koné Amadou"
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cu-email">Email *</Label>
-                <Input
-                  id="cu-email"
-                  type="email"
-                  value={createEmail}
-                  onChange={(e) => setCreateEmail(e.target.value)}
-                  placeholder="amadou@college.ci"
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cu-phone">Téléphone (facultatif)</Label>
-                <Input
-                  id="cu-phone"
-                  value={createPhone}
-                  onChange={(e) => setCreatePhone(e.target.value)}
-                  placeholder="+225 07 00 00 00 00"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cu-password">Mot de passe *</Label>
-                <Input
-                  id="cu-password"
-                  type="password"
-                  value={createPassword}
-                  onChange={(e) => setCreatePassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cu-role">Rôle *</Label>
-                <Select value={createRole} onValueChange={setCreateRole}>
-                  <SelectTrigger id="cu-role" className="h-10 w-full">
-                    <SelectValue placeholder="Choisir un rôle" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5 justify-end">
-                <Button type="submit" disabled={createSubmitting} className="w-full">
-                  {createSubmitting ? "Enregistrement…" : "Enregistrer l'utilisateur"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
+      {/* Create dialog */}
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent
+          className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-lg font-display font-bold flex items-center gap-2 text-ink">
+              <UserPlus className="size-5 text-teal-950" />
+              Créer un utilisateur
+            </DialogTitle>
+            <DialogDescription className="text-xs text-ink-soft">
+              Ajouter un nouveau membre et lui attribuer un rôle
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2 pt-1">
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <Label htmlFor="cu-name" className="text-xs font-display font-medium text-ink">
+                Nom complet *
+              </Label>
+              <Input
+                id="cu-name"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="Ex. Koné Amadou"
+                required
+                className="border-ink/15 bg-paper text-ink text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <Label htmlFor="cu-email" className="text-xs font-display font-medium text-ink">
+                Email *
+              </Label>
+              <Input
+                id="cu-email"
+                type="email"
+                value={createEmail}
+                onChange={(e) => setCreateEmail(e.target.value)}
+                placeholder="amadou@college.ci"
+                required
+                className="border-ink/15 bg-paper text-ink text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="cu-phone" className="text-xs font-display font-medium text-ink">
+                Téléphone (facultatif)
+              </Label>
+              <Input
+                id="cu-phone"
+                value={createPhone}
+                onChange={(e) => setCreatePhone(e.target.value)}
+                placeholder="+225 07 00 00 00 00"
+                className="border-ink/15 bg-paper text-ink text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="cu-password" className="text-xs font-display font-medium text-ink">
+                Mot de passe *
+              </Label>
+              <Input
+                id="cu-password"
+                type="password"
+                value={createPassword}
+                onChange={(e) => setCreatePassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                className="border-ink/15 bg-paper text-ink text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <Label htmlFor="cu-role" className="text-xs font-display font-medium text-ink">
+                Rôle *
+              </Label>
+              <Select value={createRole} onValueChange={setCreateRole}>
+                <SelectTrigger id="cu-role" className="h-10 w-full border-ink/15 bg-paper text-ink text-sm">
+                  <SelectValue placeholder="Choisir un rôle" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <DialogFooter className="sm:col-span-2 pt-3 border-t border-ink/10 gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowForm(false)}
+                disabled={createSubmitting}
+              >
+                Annuler
+              </Button>
+              <Button type="submit" disabled={createSubmitting} className="font-display">
+                {createSubmitting ? "Enregistrement…" : "Enregistrer l'utilisateur"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Advanced search and filter panel */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between py-4">
