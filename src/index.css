@@ -83,14 +83,18 @@
   --color-negative: #f87171;
   --color-negative-bg: #450a0a;
 
-  /* Sidebar */
-  --color-sidebar: #111827;
+  /* Sidebar — same surface as --color-paper (#0d1117), not a different
+     near-black. They used to be two unrelated dark palettes (this one was
+     Tailwind's slate-900) sitting flush against each other with a visible
+     seam. Separated only by a hairline border now, matching how every
+     other panel in the app (bg-paper + border-ink/10) reads. */
+  --color-sidebar: #0d1117;
   --color-sidebar-foreground: #94a3b8;
   --color-sidebar-primary: #ccfbf1;
   --color-sidebar-primary-foreground: #042f2e;
   --color-sidebar-accent: #042f2e;
   --color-sidebar-accent-foreground: #ccfbf1;
-  --color-sidebar-border: #1e293b;
+  --color-sidebar-border: #30363d;
   --color-sidebar-ring: #99f6e4;
 }
 
