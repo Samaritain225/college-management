@@ -1,11 +1,19 @@
 // Users management screen — visible only to admin and super_admin roles.
 //
-// All data comes from the AdonisJS backend REST API via src/lib/api.ts.
-// No local SQLite queries are used here — this is the canonical source of truth
-// for user management (create, edit, deactivate, reactivate).
+// Reads/writes go through the admin-users Edge Function (src/lib/adminUsers.ts),
+// not the Supabase client directly — creating/editing auth users and reading
+// email addresses requires the service_role key, which only exists inside
+// that function.
 
 import React, { useEffect, useState } from "react"
-import { api, isApiError } from "@/lib/api"
+import {
+  listAdminUsers,
+  createAdminUser,
+  updateAdminUser,
+  setAdminUserActive,
+  type ApiUser,
+} from "@/lib/adminUsers"
+import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/lib/auth"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -44,24 +52,12 @@ import {
 } from "lucide-react"
 
 // ---------------------------------------------------------------------------
-// Types — camelCase to match backend response exactly
+// Types
 // ---------------------------------------------------------------------------
-
-interface ApiUser {
-  id: string
-  name: string
-  email: string
-  phone: string | null
-  roleId: string
-  isActive: boolean
-  createdAt: string
-  updatedAt: string | null
-}
 
 interface ApiRole {
   id: string
   label: string
-  description: string
 }
 
 // ---------------------------------------------------------------------------
@@ -127,13 +123,16 @@ export function UsersPage({
     setListError(null)
     try {
       const [usersRes, rolesRes] = await Promise.all([
-        api.get<{ data: { users: ApiUser[] } }>("/users"),
-        api.get<{ data: { roles: ApiRole[] } }>("/roles"),
+        listAdminUsers(),
+        supabase.from("roles").select("id, label"),
       ])
+      if (rolesRes.error) throw new Error(rolesRes.error.message)
+
+      const rolesList = rolesRes.data as ApiRole[]
       setUsers(usersRes.data.users)
-      setRoles(rolesRes.data.roles)
-      if (rolesRes.data.roles.length > 0) {
-        const defaultRole = rolesRes.data.roles.find((r) => r.id === "investor") || rolesRes.data.roles[0]
+      setRoles(rolesList)
+      if (rolesList.length > 0) {
+        const defaultRole = rolesList.find((r) => r.id === "investor") || rolesList[0]
         setCreateRole(defaultRole.id)
       }
 
@@ -150,11 +149,7 @@ export function UsersPage({
         }
       }
     } catch (err) {
-      if (isApiError(err)) {
-        setListError(err.message)
-      } else {
-        setListError("Impossible de charger les données.")
-      }
+      setListError(err instanceof Error ? err.message : "Impossible de charger les données.")
     } finally {
       setLoading(false)
     }
@@ -212,7 +207,7 @@ export function UsersPage({
 
     setCreateSubmitting(true)
     try {
-      await api.post("/users", {
+      await createAdminUser({
         name: createName.trim(),
         email: createEmail.trim(),
         phone: createPhone.trim() || null,
@@ -227,11 +222,7 @@ export function UsersPage({
       setShowForm(false)
       await loadData()
     } catch (err) {
-      if (isApiError(err)) {
-        toast.error(err.message)
-      } else {
-        toast.error("Erreur lors de la création de l'utilisateur.")
-      }
+      toast.error(err instanceof Error ? err.message : "Erreur lors de la création de l'utilisateur.")
     } finally {
       setCreateSubmitting(false)
     }
@@ -261,16 +252,12 @@ export function UsersPage({
         payload.password = editPassword
       }
 
-      await api.patch(`/users/${detailUser.id}`, payload)
+      await updateAdminUser(detailUser.id, payload)
       toast.success("Fiche utilisateur mise à jour avec succès.")
       setEditPassword("")
       await loadData()
     } catch (err) {
-      if (isApiError(err)) {
-        toast.error(err.message)
-      } else {
-        toast.error("Erreur lors de la mise à jour.")
-      }
+      toast.error(err instanceof Error ? err.message : "Erreur lors de la mise à jour.")
     } finally {
       setEditSubmitting(false)
     }
@@ -285,10 +272,7 @@ export function UsersPage({
     setActionLoading(true)
 
     try {
-      const endpoint = detailUser.isActive
-        ? `/users/${detailUser.id}/deactivate`
-        : `/users/${detailUser.id}/reactivate`
-      await api.patch(endpoint)
+      await setAdminUserActive(detailUser.id, !detailUser.isActive)
       toast.success(
         detailUser.isActive
           ? "Utilisateur désactivé avec succès."
@@ -296,8 +280,7 @@ export function UsersPage({
       )
       await loadData()
     } catch (err) {
-      const msg = isApiError(err) ? err.message : "Une erreur est survenue."
-      toast.error(msg)
+      toast.error(err instanceof Error ? err.message : "Une erreur est survenue.")
     } finally {
       setActionLoading(false)
     }

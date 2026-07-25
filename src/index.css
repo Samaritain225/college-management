@@ -20,6 +20,20 @@
   --color-terracotta-600: #ea580c;
   --color-terracotta-100: #ffedd5;
 
+  /* Sidebar — must use the --color- prefix (not a plain custom property)
+     or Tailwind v4 never generates bg-sidebar/text-sidebar-foreground/etc.
+     as real utilities. Without this, the mobile sheet's `bg-sidebar` was a
+     no-op, leaving the sheet fully transparent over its own dialog
+     backdrop — the "sidebar looks blue and see-through in tablet mode" bug. */
+  --color-sidebar: #ffffff;
+  --color-sidebar-foreground: #475569;
+  --color-sidebar-primary: #042f2e;
+  --color-sidebar-primary-foreground: #ffffff;
+  --color-sidebar-accent: #ccfbf1;
+  --color-sidebar-accent-foreground: #042f2e;
+  --color-sidebar-border: #f1f5f9;
+  --color-sidebar-ring: #042f2e;
+
   --font-display: "Manrope", "Inter", system-ui, sans-serif;
   --font-sans: "Inter", system-ui, sans-serif;
 }
@@ -46,14 +60,6 @@
 
 :root {
   --radius: 0.5rem;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #475569;
-  --sidebar-primary: #042f2e;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #ccfbf1;
-  --sidebar-accent-foreground: #042f2e;
-  --sidebar-border: #f1f5f9;
-  --sidebar-ring: #042f2e;
 }
 
 /* ── Dark mode overrides ────────────────────────────────────────────────── */
@@ -77,15 +83,19 @@
   --color-negative: #f87171;
   --color-negative-bg: #450a0a;
 
-  /* Sidebar */
-  --sidebar: #111827;
-  --sidebar-foreground: #94a3b8;
-  --sidebar-primary: #ccfbf1;
-  --sidebar-primary-foreground: #042f2e;
-  --sidebar-accent: #042f2e;
-  --sidebar-accent-foreground: #ccfbf1;
-  --sidebar-border: #1e293b;
-  --sidebar-ring: #99f6e4;
+  /* Sidebar — same surface as --color-paper (#0d1117), not a different
+     near-black. They used to be two unrelated dark palettes (this one was
+     Tailwind's slate-900) sitting flush against each other with a visible
+     seam. Separated only by a hairline border now, matching how every
+     other panel in the app (bg-paper + border-ink/10) reads. */
+  --color-sidebar: #0d1117;
+  --color-sidebar-foreground: #94a3b8;
+  --color-sidebar-primary: #ccfbf1;
+  --color-sidebar-primary-foreground: #042f2e;
+  --color-sidebar-accent: #042f2e;
+  --color-sidebar-accent-foreground: #ccfbf1;
+  --color-sidebar-border: #30363d;
+  --color-sidebar-ring: #99f6e4;
 }
 
 

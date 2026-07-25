@@ -1,7 +1,7 @@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Clock, TrendingUp, TrendingDown, Activity as ActivityIcon } from "lucide-react"
 import { formatMoney, cn } from "@/lib/utils"
-import type { Activity, UserActivityLog } from "@/db/queries"
+import type { Activity, UserActivityLog } from "@/lib/queries"
 
 export interface FormattedActivity {
   actor: string

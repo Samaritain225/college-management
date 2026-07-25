@@ -34,6 +34,10 @@ function getRoleLabel(role: string): string {
       return "Super Admin"
     case "admin":
       return "Administrateur"
+    case "treasurer":
+      return "Trésorier"
+    case "teacher":
+      return "Enseignant"
     default:
       return "Investisseur"
   }

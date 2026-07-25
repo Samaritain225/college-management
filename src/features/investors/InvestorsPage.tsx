@@ -20,8 +20,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/utils"
-import { useAuth } from "@/lib/auth"
-import { api } from "@/lib/api"
+import { listAdminUsers, type ApiUser } from "@/lib/adminUsers"
 import {
   addInvestor,
   updateInvestor,
@@ -29,7 +28,7 @@ import {
   listContributions,
   type InvestorStanding,
   type Contribution,
-} from "@/db/queries"
+} from "@/lib/queries"
 import { toast } from "sonner"
 import {
   UserPlus,
@@ -47,13 +46,7 @@ import {
   Phone,
 } from "lucide-react"
 
-interface LinkableUser {
-  id: string
-  name: string
-  email: string
-  roleId: string
-  isActive: boolean
-}
+type LinkableUser = ApiUser
 
 interface InvestorsPageProps {
   onChange?: () => void
@@ -68,7 +61,6 @@ export function InvestorsPage({
   onBreadcrumbChange,
   backTrigger,
 }: InvestorsPageProps) {
-  const { user: me } = useAuth()
   const [standings, setStandings] = useState<InvestorStanding[]>([])
   const [users, setUsers] = useState<LinkableUser[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -105,8 +97,8 @@ export function InvestorsPage({
 
   async function loadUsers() {
     try {
-      const data = await api.get<{ data: { users: LinkableUser[] } }>("/users")
-      setUsers(data.data.users)
+      const res = await listAdminUsers()
+      setUsers(res.data.users)
     } catch (err) {
       console.error("Failed to fetch users to link:", err)
     }
@@ -174,7 +166,6 @@ export function InvestorsPage({
         phone: createPhone.trim() || null,
         agreedContribution: amount,
         userId: createUserId === "none" ? null : createUserId,
-        addedBy: me?.id,
       })
 
       toast.success("Investisseur enregistré avec succès.")

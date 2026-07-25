@@ -18,7 +18,7 @@ import {
   type Contribution,
   type Expense,
   type UserActivityLog,
-} from "@/db/queries"
+} from "@/lib/queries"
 import { Sun, Moon, Venus, Mars, Wallet, Coins, Scale, CreditCard, Calendar } from "lucide-react"
 
 const PALETTE = ["bg-teal-950", "bg-terracotta-600", "bg-positive", "bg-teal-900", "bg-ink-soft"]

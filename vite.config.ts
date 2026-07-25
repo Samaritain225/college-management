@@ -11,10 +11,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  // Tauri expects a fixed port and will fail if it's occupied
-  clearScreen: false,
-  server: {
-    port: 1420,
-    strictPort: true,
-  },
 })
