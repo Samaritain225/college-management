@@ -48,7 +48,7 @@ interface AuthContextValue {
   status: AuthStatus
   /** Last login error message. Cleared on next login attempt. */
   error: string | null
-  login: (email: string, password: string) => Promise<AuthUser>
+  login: (email: string, password: string, captchaToken?: string) => Promise<AuthUser>
   logout: () => Promise<void>
 }
 
@@ -187,11 +187,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, captchaToken?: string) => {
     setError(null)
     const { data, error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
+      options: captchaToken ? { captchaToken } : undefined,
     })
 
     if (signInError || !data.user) {
