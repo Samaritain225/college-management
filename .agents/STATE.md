@@ -26,11 +26,14 @@ data), not a current one.
 
 ## Ordered batches
 
-1. **Free wins** — done, except this file's own rewrite.
-2. **Payload & first paint** — self-host fonts (~1.5 s blocking), rework the
-   login artwork (591 KB fetched on mobile and never rendered), drop Realtime.
-3. **Make it measurable** — seed the real project, commit the bench script.
-   Sam approved seeding the real project rather than a branch.
+1. **Free wins** — done.
+2. **Payload & first paint** — done. Fonts self-hosted (removed ~1.5 s of
+   blocking on two extra origins), login artwork 591 KB → 24 KB mobile /
+   37 KB desktop and now actually rendered on phones, Realtime + Storage
+   stubbed out of the bundle (vendor chunk −27%).
+3. **Make it measurable** — done. Real project seeded
+   (`supabase/seed/dev-seed.sql`, fully reversible via `5eed…` id prefix);
+   `scripts/bench.sh` is the repeatable baseline.
 4. **Perceived speed** — synchronous auth hydration, persisted cache.
 5. **Design system** — type and radius scales as tokens.
 6. **Dashboard redesign & architecture** — mock-vs-real separation, hero
@@ -45,8 +48,9 @@ Live task list is the harness task tool (16 items, ids referenced above).
 - Leaked-password protection is off. Dashboard setting, waiting on Sam.
 - Delete-on-change for uploads has never run with a second upload, and avatar
   upload has never run at all. Same code path as the proven logo upload.
-- The database is effectively empty (0 investors, 0 contributions, 1 expense),
-  so no performance claim can be verified until batch 3 lands.
+- The dashboard now downloads **2.76 MB per load** on real seeded data, 2.63 MB
+  of it because `expenses` is fetched four times. Measured, not projected. This
+  is now the largest single cost in the app and should be pulled forward.
 
 ## Decided, not yet built
 

@@ -78,6 +78,46 @@ bomb, not a current bottleneck**.
 
 Drop Realtime from the bundle whenever convenient — it is free.
 
+## Re-measured against real data (same day, after seeding)
+
+The original numbers were taken against an empty database, with payload sizes
+projected from `generate_series`. The project has since been seeded with 1,800
+expenses, 161 contributions and 15 investors spanning Sep 2024 – Jul 2026
+(`supabase/seed/dev-seed.sql`). Both claims held:
+
+**Latency — the headline finding survives.** Re-run via `scripts/bench.sh`:
+
+| | |
+|---|---|
+| 1 request | 0.290 s |
+| 3 parallel | 0.315 s |
+| **10 parallel** | **0.346 s** |
+| **3 sequential** | **0.859 s** |
+
+Ten multiplexed requests still cost roughly what one costs. A sequential await
+still costs a full round-trip. Optimise dependency *depth*, not request count.
+
+**Payload — the projection was accurate, and it is no longer hypothetical.**
+Measured as the exact JSON PostgREST returns for the queries the Dashboard
+fires:
+
+| Query | Size |
+|---|---|
+| `listExpenses()` ×1 | 658 kB |
+| expenses ×4 (what the dashboard actually does) | **2,631 kB** |
+| contributions ×3 | 122 kB |
+| **total per dashboard load** | **2,759 kB** |
+
+The pre-seed simulation predicted 2.9 MB; the real figure is 2.76 MB. So the
+round-trip work was never wrong — it was *early*. With data present it is now
+the single largest cost on the dashboard, and it moves from batch 6 to the top
+of the queue the moment perceived-speed work lands.
+
+One caveat that has not changed: these probes use the anon key and get `42501`,
+which is a full round-trip through Postgres but skips query execution and row
+serialization. The payload table above is measured in SQL precisely because
+curl cannot see it without a session.
+
 ## The fusion worth aiming at
 
 Three changes compose better than any one alone, because each removes a
