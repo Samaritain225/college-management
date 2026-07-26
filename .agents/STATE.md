@@ -7,30 +7,19 @@ Last updated 2026-07-26. Cap: 60 lines. See the compression protocol in
 
 - R2 uploads work end to end for the college logo and profile avatars.
 - Settings split into three sections; college identity is admin-only.
-- Batch 1, free wins: money no longer wraps mid-currency, the hardcoded admin
-  email is gone from the login form, a theme bootstrap script in `index.html`
-  kills the dark-mode flash, and the three light-mode semantic colours pass AA.
-- The dashboard's false negative balance is fixed. `dashboard_summary` returns
-  `total_resources` — every contribution plus `other_income`, mirroring the
-  `college_pool` view — so it reads +79,321,244 instead of −102,928,756. The
-  four stat cards now reconcile on screen and colour by sign.
-- "Répartition du budget" is a doughnut (`BudgetDonut.tsx`). Card 2 is
-  "Encaissements", not "Revenus": that would have counted 53,357,144 of
-  investor capital as money the college earned.
-- Every data table pages at ten rows (`components/TablePager.tsx`). Expenses
-  pages server-side via `expenses_page()` — 656 kB per load down to 4.5 kB, and
-  that page also carries the KPI strip and category totals that used to be
-  derived from the same full download. Categories (9 rows), investors (15) and
-  users (1) page in memory via `usePagedRows`, because a round trip per click
-  would be strictly slower at those sizes. Investors gained a name/phone search
-  and a paid/owing filter; expenses search is server-side, debounced 300 ms.
-- Money can wrap between the amount and "F CFA" but never inside either. It was
-  joined entirely with non-breaking spaces, which made it atomic and silently
-  clipped every KPI card.
-- The activity log paginates via `activity_feed()` on an opaque (cursorAt, id)
-  keyset, and `dashboard_summary` delegates its 20 activities to it so one
-  normaliser serves both. Non-admins now read only their own rows, so a
-  non-admin's "Activités récentes" shows only their own actions.
+- Batch 1, free wins: mid-currency wrapping, the hardcoded admin email, the
+  dark-mode flash, and three sub-AA light-mode colours.
+- The dashboard's false negative balance is fixed — it read −102,928,756 on an
+  account holding +79,321,244, because it summed cotisation alone and never
+  `other_income`. The four stat cards now reconcile on screen and colour by sign.
+- "Répartition du budget" is a doughnut. Card 2 is "Encaissements", not
+  "Revenus": that would count investor capital as money the college earned.
+- Every data table pages at ten rows. Expenses pages server-side via
+  `expenses_page()` (656 kB → 4.5 kB, KPIs and category totals included, search
+  debounced 300 ms); the small tables page in memory via `usePagedRows`.
+- The activity log paginates via `activity_feed()` on a keyset cursor, and
+  non-admins now read only their own rows — so a non-admin's "Activités
+  récentes" shows only their own actions.
 
 ## Audits — both measured, both written down
 
