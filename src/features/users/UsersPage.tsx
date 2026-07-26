@@ -60,6 +60,8 @@ import {
   Clock,
 } from "lucide-react"
 import { ActivityFeed } from "@/features/activity/ActivityFeed"
+import { useNavigate, useParams } from "react-router-dom"
+import { useSetPageTitle } from "@/lib/pageTitle"
 import { TablePager } from "@/components/TablePager"
 import { usePagedRows } from "@/lib/usePagedRows"
 
@@ -78,18 +80,10 @@ interface ApiRole {
 
 interface UsersPageProps {
   profileModeForceUserId?: string
-  onBreadcrumbChange?: (items: string[]) => void
-  backTrigger?: number
-  initialSelectedUserId?: string | null
-  onClearInitialSelectedUserId?: () => void
 }
 
 export function UsersPage({
   profileModeForceUserId,
-  onBreadcrumbChange,
-  backTrigger,
-  initialSelectedUserId,
-  onClearInitialSelectedUserId,
 }: UsersPageProps) {
   const { user: me } = useAuth()
   const isAdmin = me?.role === "admin" || me?.role === "super_admin"
@@ -100,8 +94,11 @@ export function UsersPage({
   const [listError, setListError] = useState<string | null>(null)
 
   // Navigation sub-views
-  // selectedUserId handles the detail card "page" view
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(profileModeForceUserId || null)
+  // The URL owns which record is open. /profile pins it to the signed-in user
+  // instead, which is why this is not simply `useParams().id`.
+  const { id: routeUserId } = useParams()
+  const navigate = useNavigate()
+  const selectedUserId = profileModeForceUserId ?? routeUserId ?? null
 
   // Filters and search
   const [searchQuery, setSearchQuery] = useState("")
@@ -171,31 +168,17 @@ export function UsersPage({
     loadData()
   }, [selectedUserId, profileModeForceUserId])
 
-  // Listen to global back-trigger to clear details view
-  useEffect(() => {
-    if (backTrigger && backTrigger > 0) {
-      setSelectedUserId(null)
-    }
-  }, [backTrigger])
-
-  // Listen to cross-tab routing inputs
-  useEffect(() => {
-    if (initialSelectedUserId) {
-      setSelectedUserId(initialSelectedUserId)
-      onClearInitialSelectedUserId?.()
-    }
-  }, [initialSelectedUserId, onClearInitialSelectedUserId])
-
-  // Sync breadcrumbs with details view state
-  useEffect(() => {
-    if (selectedUserId && detailUser) {
-      onBreadcrumbChange?.(["Détails : " + detailUser.name])
-    } else {
-      onBreadcrumbChange?.([])
-    }
-  }, [selectedUserId, detailUser, onBreadcrumbChange])
-
   // Helpers to fetch role attributes
+  // Only once detailUser has resolved — a crumb reading "Détails : undefined"
+  // while the fetch is in flight is worse than no crumb. Suppressed entirely on
+  // /profile: there is no list to go back to there, so a trailing crumb would
+  // turn "Mon compte" into a link pointing at the page you are already on.
+  useSetPageTitle(
+    !profileModeForceUserId && selectedUserId && detailUser
+      ? `Détails : ${detailUser.name}`
+      : null
+  )
+
   function getRoleLabel(roleId: string): string {
     const r = roles.find((role) => role.id === roleId)
     return r ? r.label : roleId
@@ -331,7 +314,7 @@ export function UsersPage({
         {showBack && (
           <Button
             variant="ghost"
-            onClick={() => setSelectedUserId(null)}
+            onClick={() => navigate("/users")}
             className="mb-6 flex items-center gap-2 hover:bg-teal-100/50 text-ink-soft hover:text-ink font-display"
           >
             <ArrowLeft className="size-4" />
@@ -794,7 +777,7 @@ export function UsersPage({
                       variant="ghost"
                       size="icon"
                       className="h-9 w-9 hover:text-teal-950"
-                      onClick={() => setSelectedUserId(user.id)}
+                      onClick={() => navigate(`/users/${user.id}`)}
                       title="Consulter et éditer"
                     >
                       <Eye className="size-4" />

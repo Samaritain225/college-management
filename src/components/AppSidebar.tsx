@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useLocation } from "react-router-dom"
 import {
   LayoutDashboard,
   Users,
@@ -22,40 +23,99 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { useSettings } from "@/lib/settings"
-
-type Tab = "dashboard" | "investors" | "expenses" | "categories" | "users" | "settings" | "profile" | "teachers" | "students" | "classes"
+import { useDirectionalNavigate } from "@/lib/useDirectionalNavigate"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  currentTab: Tab
-  onTabChange: (tab: Tab) => void
   /** The authenticated user's role — controls which nav items are visible. */
   userRole: string | undefined
 }
 
-export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppSidebarProps) {
+interface NavEntry {
+  to: string
+  title: string
+  icon: React.ComponentType<{ className?: string }>
+}
+
+/**
+ * One sidebar row.
+ *
+ * Navigates through `useDirectionalNavigate` rather than a plain `<Link>` so
+ * the slide keeps its direction of travel; a Link would still route correctly
+ * but every transition would animate the same way.
+ */
+function NavItem({ to, title, icon: Icon }: NavEntry) {
+  const { pathname } = useLocation()
+  const navigate = useDirectionalNavigate()
+
+  // Prefix match so /investors/:id keeps the Investisseurs row lit. "/" would
+  // prefix-match everything, so it is compared exactly.
+  const isActive = to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(to + "/")
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        tooltip={title}
+        isActive={isActive}
+        onClick={() => navigate(to)}
+        className={`w-full justify-start gap-3 transition-colors ${
+          isActive
+            ? "bg-teal-100 text-teal-950 font-display font-semibold"
+            : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
+        }`}
+      >
+        <Icon className="size-4 shrink-0" />
+        <span className="group-data-[collapsible=icon]:hidden font-display">{title}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  )
+}
+
+function NavGroup({
+  label,
+  items,
+  className,
+}: {
+  label: string
+  items: NavEntry[]
+  className?: string
+}) {
+  if (items.length === 0) return null
+  return (
+    <SidebarGroup className={`p-0 space-y-1 ${className ?? ""}`}>
+      <SidebarGroupLabel className="text-xs font-display font-semibold text-ink-soft/70 uppercase tracking-wider px-2 group-data-[collapsible=icon]:hidden">
+        {label}
+      </SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu className="gap-1">
+          {items.map((item) => (
+            <NavItem key={item.to} {...item} />
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  )
+}
+
+export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
   const { collegeName, collegeLogo } = useSettings()
 
   const canManageUsers = userRole === "admin" || userRole === "super_admin"
 
-  const academicItems = [
-    { id: "teachers" as Tab, title: "Enseignants", icon: GraduationCap },
-    { id: "students" as Tab, title: "Élèves", icon: BookOpen },
-    { id: "classes" as Tab, title: "Classes", icon: School },
+  const academicItems: NavEntry[] = [
+    { to: "/teachers", title: "Enseignants", icon: GraduationCap },
+    { to: "/students", title: "Élèves", icon: BookOpen },
+    { to: "/classes", title: "Classes", icon: School },
   ]
 
-  const financeItems = [
-    { id: "expenses" as Tab, title: "Dépenses", icon: Receipt },
-    { id: "categories" as Tab, title: "Catégories", icon: FolderTree },
-    ...(canManageUsers
-      ? [{ id: "investors" as Tab, title: "Investisseurs", icon: Users }]
-      : []),
+  const financeItems: NavEntry[] = [
+    { to: "/expenses", title: "Dépenses", icon: Receipt },
+    { to: "/categories", title: "Catégories", icon: FolderTree },
+    ...(canManageUsers ? [{ to: "/investors", title: "Investisseurs", icon: Users }] : []),
   ]
 
-  const systemItems = [
-    ...(canManageUsers
-      ? [{ id: "users" as Tab, title: "Utilisateurs", icon: UserCog }]
-      : []),
-    { id: "settings" as Tab, title: "Paramètres", icon: Settings },
+  const systemItems: NavEntry[] = [
+    ...(canManageUsers ? [{ to: "/users", title: "Utilisateurs", icon: UserCog }] : []),
+    { to: "/settings", title: "Paramètres", icon: Settings },
   ]
 
   return (
@@ -76,112 +136,17 @@ export function AppSidebar({ currentTab, onTabChange, userRole, ...props }: AppS
       </SidebarHeader>
 
       <SidebarContent className="px-3 py-3 space-y-4">
-        {/* Top Ungrouped Item: Tableau de bord */}
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="Tableau de bord"
-                  isActive={currentTab === "dashboard"}
-                  onClick={() => onTabChange("dashboard")}
-                  className={`w-full justify-start gap-3 transition-colors ${
-                    currentTab === "dashboard"
-                      ? "bg-teal-100 text-teal-950 font-display font-semibold"
-                      : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
-                  }`}
-                >
-                  <LayoutDashboard className="size-4 shrink-0" />
-                  <span className="group-data-[collapsible=icon]:hidden font-display">Tableau de bord</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              <NavItem to="/" title="Tableau de bord" icon={LayoutDashboard} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Group 1: Académique */}
-        <SidebarGroup className="p-0 space-y-1">
-          <SidebarGroupLabel className="text-xs font-display font-semibold text-ink-soft/70 uppercase tracking-wider px-2 group-data-[collapsible=icon]:hidden">
-            Académique
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-1">
-              {academicItems.map((item) => (
-                <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton
-                    tooltip={item.title}
-                    isActive={currentTab === item.id}
-                    onClick={() => onTabChange(item.id)}
-                    className={`w-full justify-start gap-3 transition-colors ${
-                      currentTab === item.id
-                        ? "bg-teal-100 text-teal-950 font-display font-semibold"
-                        : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
-                    }`}
-                  >
-                    <item.icon className="size-4 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden font-display">{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Group 2: Finances */}
-        <SidebarGroup className="p-0 space-y-1">
-          <SidebarGroupLabel className="text-xs font-display font-semibold text-ink-soft/70 uppercase tracking-wider px-2 group-data-[collapsible=icon]:hidden">
-            Finances
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-1">
-              {financeItems.map((item) => (
-                <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton
-                    tooltip={item.title}
-                    isActive={currentTab === item.id}
-                    onClick={() => onTabChange(item.id)}
-                    className={`w-full justify-start gap-3 transition-colors ${
-                      currentTab === item.id
-                        ? "bg-teal-100 text-teal-950 font-display font-semibold"
-                        : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
-                    }`}
-                  >
-                    <item.icon className="size-4 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden font-display">{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Group 3: Système */}
-        <SidebarGroup className="p-0 space-y-1 mt-auto">
-          <SidebarGroupLabel className="text-xs font-display font-semibold text-ink-soft/70 uppercase tracking-wider px-2 group-data-[collapsible=icon]:hidden">
-            Système
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-1">
-              {systemItems.map((item) => (
-                <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton
-                    tooltip={item.title}
-                    isActive={currentTab === item.id}
-                    onClick={() => onTabChange(item.id)}
-                    className={`w-full justify-start gap-3 transition-colors ${
-                      currentTab === item.id
-                        ? "bg-teal-100 text-teal-950 font-display font-semibold"
-                        : "text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
-                    }`}
-                  >
-                    <item.icon className="size-4 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden font-display">{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <NavGroup label="Académique" items={academicItems} />
+        <NavGroup label="Finances" items={financeItems} />
+        <NavGroup label="Système" items={systemItems} className="mt-auto" />
       </SidebarContent>
     </Sidebar>
   )

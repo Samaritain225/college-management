@@ -20,6 +20,12 @@ Last updated 2026-07-26. Cap: 60 lines. See the compression protocol in
 - The activity log paginates via `activity_feed()` on a keyset cursor, and
   non-admins now read only their own rows — so a non-admin's "Activités
   récentes" shows only their own actions.
+- **The app has real URLs** (react-router v7, English paths). Detail views are
+  routes, so `/investors/:id` and `/users/:id` are linkable and survive a
+  reload. That deleted the whole tab apparatus — `Tab`, `tabOrder`,
+  `KNOWN_TABS`, the sessionStorage tab memory — and the `onBreadcrumbChange` +
+  `backTrigger` channel, which existed only because detail views were state.
+  `App.tsx` is 497 lines down to 27.
 
 ## Audits — both measured, both written down
 
@@ -42,12 +48,20 @@ step costs 5–10× more than an extra parallel one.
 4. **Perceived speed — next.** Synchronous auth hydration, persisted cache.
    Cheaper now that the payload it caches is 14 kB rather than 2.76 MB.
 5. Design system — type and radius scales as tokens.
-6. Dashboard redesign & architecture — the aggregate RPC, hero stat row and
-   donut have landed; the router is the remaining piece, and it blocks the
-   super-admin dashboard.
+6. Dashboard redesign & architecture — done. The router landed last; the
+   super-admin dashboard is now unblocked and is a routing/query problem only.
 
 ## Blocking and open risks
 
+- The router cost **+28.5 kB gzipped** on the entry chunk (85.4 → 113.9), more
+  than the ~20 kB estimated when choosing it. Most of that is the data-router
+  runtime pulled in by `createBrowserRouter`, and this app uses no loaders or
+  actions. Declarative `<BrowserRouter>` + `<Routes>` would drop it, at the cost
+  of replacing the `useMatches()`/`handle` breadcrumb with a path→label map.
+  Worth deciding before the next payload pass.
+- The non-admin redirect off `/users` and `/investors` is unexercised: the
+  project has exactly one user, a super_admin. The logic is `RequireRole` with a
+  `<Navigate to="/" replace />` fallback, confirmed by reading only.
 - **The `admin-users` audit logging is written but never deployed or run.** The
   Supabase MCP connection dropped and neither the Supabase CLI nor Deno is
   installed locally. Deploy it, create a test user, confirm a `USER_CREATE` row
@@ -72,7 +86,7 @@ step costs 5–10× more than an extra parallel one.
 - Stay on Vite and React. Every screen is behind auth so nothing pre-renders,
   and SSR would add a round trip before first paint on these connections.
 - The super-admin dashboard needs no new framework or schema work — tables carry
-  `college_id`, RLS already scopes by college. It is a routing and query
-  problem, and the router must land first.
+  `college_id`, RLS already scopes by college, and the router is in place. It is
+  a routing and query problem now.
 - Login keeps the split layout on desktop; mobile gets the artwork as a
   full-bleed background with the form on top, one right-sized image per viewport.

@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { StatCard } from "@/components/StatCard"
+import { useNavigate, useParams } from "react-router-dom"
+import { useSetPageTitle } from "@/lib/pageTitle"
 import { TablePager } from "@/components/TablePager"
 import { usePagedRows } from "@/lib/usePagedRows"
 import { Button } from "@/components/ui/button"
@@ -54,16 +56,12 @@ type LinkableUser = ApiUser
 
 interface InvestorsPageProps {
   onChange?: () => void
-  dbReady: boolean
-  onBreadcrumbChange?: (items: string[]) => void
-  backTrigger?: number
+  dbReady?: boolean
 }
 
 export function InvestorsPage({
   onChange,
-  dbReady,
-  onBreadcrumbChange,
-  backTrigger,
+  dbReady = true,
 }: InvestorsPageProps) {
   const [standings, setStandings] = useState<InvestorStanding[]>([])
   const [users, setUsers] = useState<LinkableUser[]>([])
@@ -73,7 +71,15 @@ export function InvestorsPage({
   // Detail view state
   const [searchQuery, setSearchQuery] = useState("")
   const [paymentFilter, setPaymentFilter] = useState<"all" | "paid" | "owing">("all")
-  const [selectedInvestor, setSelectedInvestor] = useState<InvestorStanding | null>(null)
+  // The URL owns which record is open. `standings` is the list this page
+  // already loads, so the detail view is a lookup rather than a second fetch —
+  // and a deep link works because the lookup happens after that load resolves.
+  const { id: routeInvestorId } = useParams()
+  const navigate = useNavigate()
+  const selectedInvestor = routeInvestorId
+    ? (standings.find((s) => s.id === routeInvestorId) ?? null)
+    : null
+  useSetPageTitle(selectedInvestor ? `Fiche — ${selectedInvestor.name}` : null)
   const [investorContribs, setInvestorContribs] = useState<Contribution[]>([])
 
   // Create form state
@@ -120,21 +126,6 @@ export function InvestorsPage({
       loadData()
     }
   }, [dbReady])
-
-  // Handle breadcrumb navigation & back button triggers
-  useEffect(() => {
-    if (backTrigger && backTrigger > 0) {
-      setSelectedInvestor(null)
-    }
-  }, [backTrigger])
-
-  useEffect(() => {
-    if (selectedInvestor) {
-      onBreadcrumbChange?.([`Fiche — ${selectedInvestor.name}`])
-    } else {
-      onBreadcrumbChange?.([])
-    }
-  }, [selectedInvestor, onBreadcrumbChange])
 
   // Fetch contributions for selected investor when detail page is opened
   useEffect(() => {
@@ -318,7 +309,7 @@ export function InvestorsPage({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <Button
             variant="ghost"
-            onClick={() => setSelectedInvestor(null)}
+            onClick={() => navigate("/investors")}
             className="w-fit flex items-center gap-2 text-xs font-display text-ink-soft hover:text-ink -ml-2"
           >
             <ArrowLeft className="size-4" />
@@ -330,7 +321,7 @@ export function InvestorsPage({
               size="sm"
               onClick={() => {
                 startEdit(selectedInvestor)
-                setSelectedInvestor(null)
+                navigate("/investors")
               }}
               className="text-xs font-display flex items-center gap-1.5"
             >
@@ -681,7 +672,7 @@ export function InvestorsPage({
                         />
                       ) : (
                         <button
-                          onClick={() => setSelectedInvestor(s)}
+                          onClick={() => navigate(`/investors/${s.id}`)}
                           className="font-display font-semibold text-ink hover:text-teal-950 hover:underline text-left whitespace-nowrap"
                         >
                           {s.name}
@@ -765,7 +756,7 @@ export function InvestorsPage({
                               size="icon"
                               variant="ghost"
                               className="h-8 w-8 text-ink-soft hover:text-teal-950 hover:bg-teal-100/50"
-                              onClick={() => setSelectedInvestor(s)}
+                              onClick={() => navigate(`/investors/${s.id}`)}
                               title="Voir la fiche détaillée"
                             >
                               <Eye className="size-4" />

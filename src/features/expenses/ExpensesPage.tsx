@@ -53,6 +53,7 @@ import { TablePager } from "@/components/TablePager"
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination"
 import { usePagedRows } from "@/lib/usePagedRows"
 import { useDebounced } from "@/lib/useDebounced"
+import { useNavigate } from "react-router-dom"
 import { cn, formatMoney } from "@/lib/utils"
 import { format, startOfToday } from "date-fns"
 import { fr } from "date-fns/locale"
@@ -89,16 +90,15 @@ let categoriesCache: BudgetCategory[] | null = null
 
 export function ExpensesPage({
   onChange,
-  dbReady,
+  dbReady = true,
   mode = "expenses",
-  onNavigateToTab,
 }: {
   onChange?: () => void
-  dbReady: boolean
+  dbReady?: boolean
   mode?: "expenses" | "categories"
-  onNavigateToTab?: (tab: any) => void
 }) {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [categories, setCategories] = useState<BudgetCategory[]>(categoriesCache ?? [])
   const [loading, setLoading] = useState(true)
@@ -416,11 +416,7 @@ export function ExpensesPage({
 
   function handleFilterByCategory(catId: string) {
     setSelectedCategory(catId)
-    if (onNavigateToTab) {
-      onNavigateToTab("expenses")
-    } else {
-      setActiveTab("expenses")
-    }
+    navigate("/expenses")
   }
 
   if (!dbReady || loading) {

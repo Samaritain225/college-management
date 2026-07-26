@@ -116,6 +116,11 @@ multi-tenant UI yet — see "Known gaps" below.
   both arms of a search OR as predicates on the *same* table — an
   `or joined_table.col ilike …` forces a join filter and makes the trigram index
   unusable at any size.
+- **The breadcrumb reads route `handle` metadata, so `createBrowserRouter` is
+  load-bearing.** `useMatches()` only exists on a data router. Swapping to
+  declarative `<BrowserRouter>`/`<Routes>` to shed the data-router bundle means
+  replacing that with a path-to-label map first — the breadcrumb will silently
+  render nothing otherwise, since `handle` is simply absent.
 - **`activity_log` has exactly one non-trigger writer: the `admin-users` edge
   function, as service_role.** Everything else is written by `log_activity()`
   on INSERT, and the client must never write it directly — that part of the

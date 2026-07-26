@@ -5,6 +5,7 @@
 // now shows the currently logged-in user's name and role, and provides a
 // single "Se déconnecter" action that calls auth.logout().
 
+import { Link } from "react-router-dom"
 import { useAuth } from "@/lib/auth"
 import { useTheme } from "@/lib/theme"
 import {
@@ -43,7 +44,7 @@ function getRoleLabel(role: string): string {
   }
 }
 
-export function ActiveUserBar({ onNavigateToTab }: { onNavigateToTab?: (tab: any) => void }) {
+export function ActiveUserBar() {
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
 
@@ -100,18 +101,13 @@ export function ActiveUserBar({ onNavigateToTab }: { onNavigateToTab?: (tab: any
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="bg-ink/10" />
-          {onNavigateToTab && (
-            <>
-              <DropdownMenuItem
-                onClick={() => onNavigateToTab("profile")}
-                className="cursor-pointer text-ink hover:bg-teal-100/50 hover:text-teal-950"
-              >
-                <User className="mr-2 size-4" />
-                <span className="font-display text-sm">Mon compte</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-ink/10" />
-            </>
-          )}
+          <DropdownMenuItem asChild className="cursor-pointer text-ink hover:bg-teal-100/50 hover:text-teal-950">
+            <Link to="/profile">
+              <User className="mr-2 size-4" />
+              <span className="font-display text-sm">Mon compte</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="bg-ink/10" />
           <DropdownMenuItem
             onClick={logout}
             className="text-negative focus:bg-negative-bg focus:text-negative cursor-pointer"

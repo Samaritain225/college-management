@@ -35,15 +35,11 @@ interface DashboardCacheData {
 
 let dashboardCache: DashboardCacheData | null = null
 
-export function Dashboard({
-  refreshKey,
-  dbReady,
-  onNavigateToTab: _onNavigateToTab,
-}: {
-  refreshKey?: number
-  dbReady: boolean
-  onNavigateToTab?: (tab: "dashboard" | "investors" | "expenses" | "users" | "settings" | "profile" | "teachers" | "students" | "classes", subId?: string) => void
-}) {
+// `dbReady` outlived the local libSQL bootstrap it used to gate (Phase 0) and
+// is always true; it stays as an optional prop so the loading gate below reads
+// unchanged. `refreshKey` is gone: the router unmounts this screen when you
+// navigate away, so returning to it refetches on mount anyway.
+export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
   const { user } = useAuth()
   const [period, setPeriod] = useState<Period>("all")
   const [pool, setPool] = useState(dashboardCache?.pool ?? 0)
@@ -127,7 +123,7 @@ export function Dashboard({
       }
     }
     load()
-  }, [refreshKey, dbReady, retryTick])
+  }, [dbReady, retryTick])
 
   // Period-filtered stats, now summed from month buckets instead of from every
   // row in the table. Same arithmetic, ~200x less data to get here.
