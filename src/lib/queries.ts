@@ -242,6 +242,99 @@ export async function listExpenses(): Promise<Expense[]> {
   }))
 }
 
+export interface ExpenseStats {
+  totalCount: number
+  totalAmount: number
+  avgAmount: number
+  todayCount: number
+  todayAmount: number
+}
+
+export interface CategoryStat {
+  categoryId: string
+  total: number
+  count: number
+}
+
+export interface ExpensesPageResult {
+  rows: Expense[]
+  /** Rows matching the filters across every page, for the pager. */
+  total: number
+  /**
+   * KPI strip and per-category totals. Scoped to the date range only, NOT to
+   * the search or category filter — that is what the page showed before, and
+   * silently renarrowing the headline numbers when someone types in the search
+   * box would change what they mean mid-session.
+   */
+  stats: ExpenseStats
+  categoryStats: CategoryStat[]
+}
+
+export interface ExpensesPageQuery {
+  /** Matched against the expense label and the category name, case-insensitive
+   *  substring. Blank or whitespace-only means "no filter". */
+  search?: string | null
+  categoryId?: string | null
+  from?: string | null
+  to?: string | null
+  page?: number
+  pageSize?: number
+}
+
+/**
+ * One page of expenses, filtered and counted server-side.
+ *
+ * Unlike the small tables, this one is worth a round trip: 1,801 rows today and
+ * growing with every purchase the college makes. `listExpenses` below still
+ * exists for the callers that genuinely need the whole ledger (the totals
+ * strip), but the grid must not download it to show ten rows.
+ */
+export async function getExpensesPage(
+  q: ExpensesPageQuery = {}
+): Promise<ExpensesPageResult> {
+  const pageSize = q.pageSize ?? 10
+  const page = Math.max(q.page ?? 1, 1)
+
+  const res = await supabase.rpc("expenses_page", {
+    p_college_id: COLLEGE_ID,
+    p_search: q.search ?? null,
+    p_category_id: q.categoryId ?? null,
+    p_from: q.from ?? null,
+    p_to: q.to ?? null,
+    p_limit: pageSize,
+    p_offset: (page - 1) * pageSize,
+  })
+
+  const d = unwrap(res) as any
+  const s = d.stats ?? {}
+  return {
+    total: Number(d.total ?? 0),
+    stats: {
+      totalCount: Number(s.total_count ?? 0),
+      totalAmount: Number(s.total_amount ?? 0),
+      avgAmount: Number(s.avg_amount ?? 0),
+      todayCount: Number(s.today_count ?? 0),
+      todayAmount: Number(s.today_amount ?? 0),
+    },
+    categoryStats: (d.category_stats ?? []).map((c: any) => ({
+      categoryId: c.category_id,
+      total: Number(c.total),
+      count: Number(c.count),
+    })),
+    rows: (d.rows ?? []).map((e: any) => ({
+      id: e.id,
+      category_id: e.category_id,
+      category_name: e.category_name,
+      amount: Number(e.amount),
+      description: e.description,
+      spent_at: e.spent_at,
+      recorded_by: e.recorded_by,
+      recorded_by_name: e.recorded_by_name,
+      reverses_expense_id: e.reverses_expense_id,
+    })),
+  }
+}
+
 export async function addExpense(input: {
   categoryId: string
   amount: number
@@ -294,13 +387,27 @@ export interface Activity {
 export interface MonthBucket {
   /** "YYYY-MM", UTC, matching how the client used to key off ISO strings. */
   month: string
+  /** Cotisation only — the ownership-basis figure and the charted series. */
   contributed: number
+  /** Every cash inflow: both contribution types plus other income. */
+  resources: number
+  /** The other-income slice of `resources`, broken out for the footer. */
+  otherIncome: number
   spent: number
 }
 
 export interface DashboardSummary {
   pool: number
   totalContributed: number
+  /**
+   * Total cash actually received — every contribution (adhésion included, since
+   * it is real money even though it confers no ownership) plus other income.
+   * This, not totalContributed, is what the balance must be computed against:
+   * other income is the largest single source, and leaving it out made the
+   * dashboard report a negative balance on a healthy account.
+   */
+  totalResources: number
+  totalOtherIncome: number
   totalSpent: number
   byCategory: { name: string; amount: number }[]
   monthly: MonthBucket[]
@@ -315,6 +422,8 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
   return {
     pool: Number(d.pool),
     totalContributed: Number(d.total_contributed),
+    totalResources: Number(d.total_resources),
+    totalOtherIncome: Number(d.total_other_income),
     totalSpent: Number(d.total_spent),
     byCategory: (d.by_category ?? []).map((c: any) => ({
       name: c.name,
@@ -323,6 +432,8 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     monthly: (d.monthly ?? []).map((m: any) => ({
       month: m.month,
       contributed: Number(m.contributed),
+      resources: Number(m.resources),
+      otherIncome: Number(m.other_income),
       spent: Number(m.spent),
     })),
     recent: (d.recent ?? []).map((a: any) => ({
@@ -336,14 +447,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     // Already normalized server-side into the shape formatActivityItem reads.
     // That also removed the dependent second query that resolved investor
     // names — a sequential await, and those measured ~290ms each.
-    userActivities: (d.user_activities ?? []).map((a: any) => ({
-      id: a.id,
-      userId: a.userId,
-      userName: a.userName,
-      action: a.action,
-      createdAt: a.createdAt,
-      metadata: a.metadata,
-    })),
+    userActivities: (d.user_activities ?? []).map(toActivity),
   }
 }
 
@@ -352,6 +456,81 @@ export interface UserActivityLog {
   userId: string | null
   userName: string
   action: string
+  /** Display timestamp, truncated to whole seconds. Never page on this. */
   createdAt: string
+  /**
+   * Full-precision timestamp, for the keyset cursor only. Distinct from
+   * `createdAt` on purpose: that one is truncated to seconds, and real rows
+   * carry microseconds, so paging on it would place the cursor before every
+   * row sharing that second and silently skip them.
+   */
+  cursorAt: string
   metadata: Record<string, any> | null
+}
+
+export interface ActivityCursor {
+  cursorAt: string
+  id: string
+}
+
+export interface ActivityPage {
+  items: UserActivityLog[]
+  /** Null once the feed is exhausted. */
+  nextCursor: ActivityCursor | null
+}
+
+export const ACTIVITY_PAGE_SIZE = 20
+
+function toActivity(a: any): UserActivityLog {
+  return {
+    id: a.id,
+    userId: a.userId,
+    userName: a.userName,
+    action: a.action,
+    createdAt: a.createdAt,
+    cursorAt: a.cursorAt,
+    metadata: a.metadata,
+  }
+}
+
+/**
+ * One page of the activity log, newest first.
+ *
+ * Keyset-paginated rather than offset-paginated: rows land in this table while
+ * someone is scrolling, and an OFFSET boundary shifts underneath them, which
+ * duplicates or skips entries. What comes back is already normalized by the
+ * same SQL the dashboard uses, so no reshaping happens here.
+ *
+ * `userId` filters to one person's history. It is a convenience, not a
+ * permission boundary — the RLS policy on activity_log already restricts a
+ * non-admin to their own rows regardless of what is passed.
+ */
+export async function listActivityFeed(
+  opts: { userId?: string | null; cursor?: ActivityCursor | null; limit?: number } = {}
+): Promise<ActivityPage> {
+  const limit = opts.limit ?? ACTIVITY_PAGE_SIZE
+  const res = await supabase.rpc("activity_feed", {
+    p_college_id: COLLEGE_ID,
+    p_user_id: opts.userId ?? null,
+    p_before_created_at: opts.cursor?.cursorAt ?? null,
+    p_before_id: opts.cursor?.id ?? null,
+    p_limit: limit,
+  })
+
+  const rows = (unwrap(res) as any[]) ?? []
+  const items = rows.map(toActivity)
+  const last = items[items.length - 1]
+
+  return {
+    items,
+    // A short page is the end of the feed. Only a full page can have more.
+    nextCursor:
+      items.length === limit && last ? { cursorAt: last.cursorAt, id: last.id } : null,
+  }
+}
+
+/** The cursor to continue from, given the activities the dashboard preloaded. */
+export function cursorFrom(items: UserActivityLog[]): ActivityCursor | null {
+  const last = items[items.length - 1]
+  return last ? { cursorAt: last.cursorAt, id: last.id } : null
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { PeriodFilter } from "@/components/PeriodFilter"
 import { StatCard } from "@/components/StatCard"
-import { BudgetBar, type CategorySpend } from "./BudgetBar"
+import { BudgetDonut, type CategorySpend } from "./BudgetDonut"
 import { RecentActivities } from "./RecentActivities"
 import { formatMoney } from "@/lib/utils"
 import { useAuth } from "@/lib/auth"
@@ -15,8 +15,6 @@ import {
 } from "@/lib/queries"
 import { Sun, Moon, Venus, Mars, Wallet, Coins, Scale, CreditCard } from "lucide-react"
 
-const PALETTE = ["bg-teal-950", "bg-terracotta-600", "bg-positive", "bg-teal-900", "bg-ink-soft"]
-
 interface ChartDataPoint {
   month: string
   contributed: number
@@ -26,6 +24,8 @@ interface ChartDataPoint {
 interface DashboardCacheData {
   pool: number
   baseContributed: number
+  baseResources: number
+  baseOtherIncome: number
   baseSpent: number
   byCategory: CategorySpend[]
   activities: Activity[]
@@ -48,6 +48,8 @@ export function Dashboard({
   const [period, setPeriod] = useState<Period>("all")
   const [pool, setPool] = useState(dashboardCache?.pool ?? 0)
   const [baseContributed, setBaseContributed] = useState(dashboardCache?.baseContributed ?? 0)
+  const [baseResources, setBaseResources] = useState(dashboardCache?.baseResources ?? 0)
+  const [baseOtherIncome, setBaseOtherIncome] = useState(dashboardCache?.baseOtherIncome ?? 0)
   const [baseSpent, setBaseSpent] = useState(dashboardCache?.baseSpent ?? 0)
   const [byCategory, setByCategory] = useState<CategorySpend[]>(dashboardCache?.byCategory ?? [])
   const [activities, setActivities] = useState<Activity[]>(dashboardCache?.activities ?? [])
@@ -93,16 +95,14 @@ export function Dashboard({
       try {
         setLoadError(false)
         const summary = await getDashboardSummary()
-        const mappedCats = summary.byCategory.map((cat, i) => ({
-          ...cat,
-          color: PALETTE[i % PALETTE.length],
-        }))
 
         dashboardCache = {
           pool: summary.pool,
           baseContributed: summary.totalContributed,
+          baseResources: summary.totalResources,
+          baseOtherIncome: summary.totalOtherIncome,
           baseSpent: summary.totalSpent,
-          byCategory: mappedCats,
+          byCategory: summary.byCategory,
           activities: summary.recent,
           userActivities: summary.userActivities,
           monthly: summary.monthly,
@@ -110,8 +110,10 @@ export function Dashboard({
 
         setPool(summary.pool)
         setBaseContributed(summary.totalContributed)
+        setBaseResources(summary.totalResources)
+        setBaseOtherIncome(summary.totalOtherIncome)
         setBaseSpent(summary.totalSpent)
-        setByCategory(mappedCats)
+        setByCategory(summary.byCategory)
         setActivities(summary.recent)
         setUserActivities(summary.userActivities)
         setMonthly(summary.monthly)
@@ -134,7 +136,15 @@ export function Dashboard({
   const contributed =
     period === "all" ? baseContributed : bucketsInPeriod.reduce((sum, m) => sum + m.contributed, 0)
   const spent = period === "all" ? baseSpent : bucketsInPeriod.reduce((sum, m) => sum + m.spent, 0)
-  const remaining = contributed - spent
+  // Every cash inflow, not just cotisation. The balance used to be
+  // `contributed - spent`, which ignored other income entirely and so reported
+  // -102,928,756 F CFA on an account actually holding +79,321,244.
+  const resources =
+    period === "all" ? baseResources : bucketsInPeriod.reduce((sum, m) => sum + m.resources, 0)
+  const otherIncome =
+    period === "all" ? baseOtherIncome : bucketsInPeriod.reduce((sum, m) => sum + m.otherIncome, 0)
+  const remaining = resources - spent
+  const isSolvent = remaining >= 0
 
   // Recompute chart timeline. Cumulative within the selected period, matching
   // the previous behaviour — the old code accumulated over the *filtered* rows,
@@ -237,22 +247,26 @@ export function Dashboard({
       </header>
 
       {/* Financial stats cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-6">
         <StatCard
           label="Fonds Engagé"
           value={formatMoney(pool)}
           icon={Wallet}
           iconClassName="bg-teal-100/60 text-teal-950"
-          footer="Enveloppe globale théorique"
+          footer={
+            <span className="text-teal-950">
+              {pool > 0 ? Math.round((contributed / pool) * 100) : 0}% libéré par les investisseurs
+            </span>
+          }
         />
         <StatCard
-          label="Fonds Libéré"
-          value={formatMoney(contributed)}
+          label="Encaissements"
+          value={formatMoney(resources)}
           icon={Coins}
           iconClassName="bg-teal-100 text-teal-950"
           footer={
             <span className="text-teal-950">
-              {pool > 0 ? Math.round((contributed / pool) * 100) : 0}% du budget alloué
+              dont {formatMoney(otherIncome)} autres revenus
             </span>
           }
         />
@@ -263,20 +277,26 @@ export function Dashboard({
           iconClassName="bg-terracotta-100 text-terracotta-600"
           footer={
             <span className="text-terracotta-600">
-              {contributed > 0 ? Math.round((spent / contributed) * 100) : 0}% des contributions
+              {resources > 0 ? Math.round((spent / resources) * 100) : 0}% des ressources
             </span>
           }
         />
         <StatCard
           label="Solde Restant"
           value={formatMoney(remaining)}
-          valueClassName="text-positive"
+          valueClassName={isSolvent ? "text-positive" : "text-negative"}
           icon={Scale}
-          iconClassName="bg-positive-bg text-positive"
+          iconClassName={isSolvent ? "bg-positive-bg text-positive" : "bg-negative-bg text-negative"}
           footer={
-            <span className="flex items-center gap-1.5 text-positive">
-              <span className="h-1.5 w-1.5 rounded-full bg-positive animate-pulse shrink-0" />
-              Fonds disponibles
+            <span
+              className={`flex items-center gap-1.5 ${isSolvent ? "text-positive" : "text-negative"}`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                  isSolvent ? "bg-positive animate-pulse" : "bg-negative"
+                }`}
+              />
+              {isSolvent ? "Fonds disponibles" : "Découvert"}
             </span>
           }
         />
@@ -546,11 +566,11 @@ export function Dashboard({
           </CardHeader>
           <CardContent className="px-6 pb-6 pt-0">
             {byCategory.length > 0 ? (
-              <BudgetBar totalPool={contributed} spentByCategory={byCategory} />
+              <BudgetDonut totalPool={resources} spentByCategory={byCategory} />
             ) : (
               <div className="flex flex-col items-center justify-center py-10 text-center">
-                <p className="text-sm font-display font-medium text-ink">Aucune contribution enregistrée pour le moment.</p>
-                <p className="text-xs text-ink-soft mt-1">Ajoutez des investissements pour voir la répartition par catégorie.</p>
+                <p className="text-sm font-display font-medium text-ink">Aucune dépense enregistrée pour le moment.</p>
+                <p className="text-xs text-ink-soft mt-1">Enregistrez des dépenses pour voir la répartition par catégorie.</p>
               </div>
             )}
           </CardContent>

@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { StatCard } from "@/components/StatCard"
+import { TablePager } from "@/components/TablePager"
+import { usePagedRows } from "@/lib/usePagedRows"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -45,6 +47,7 @@ import {
   ArrowLeft,
   Calendar,
   Phone,
+  Search,
 } from "lucide-react"
 
 type LinkableUser = ApiUser
@@ -68,6 +71,8 @@ export function InvestorsPage({
   const [loading, setLoading] = useState(true)
 
   // Detail view state
+  const [searchQuery, setSearchQuery] = useState("")
+  const [paymentFilter, setPaymentFilter] = useState<"all" | "paid" | "owing">("all")
   const [selectedInvestor, setSelectedInvestor] = useState<InvestorStanding | null>(null)
   const [investorContribs, setInvestorContribs] = useState<Contribution[]>([])
 
@@ -257,6 +262,25 @@ export function InvestorsPage({
   const totalOwed = standings.reduce((acc, curr) => acc + curr.owed, 0)
   const unpaidCount = standings.filter((s) => s.owed > 0).length
 
+  // 15 investors — filtered and paged in memory. Going to the server for a
+  // page of ten out of fifteen would cost a round trip and gain nothing.
+  const filteredStandings = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return standings.filter((s) => {
+      const matchesSearch =
+        !q ||
+        s.name.toLowerCase().includes(q) ||
+        (s.phone || "").toLowerCase().includes(q)
+      const matchesPayment =
+        paymentFilter === "all" ||
+        (paymentFilter === "paid" && s.owed <= 0) ||
+        (paymentFilter === "owing" && s.owed > 0)
+      return matchesSearch && matchesPayment
+    })
+  }, [standings, searchQuery, paymentFilter])
+
+  const investorPaging = usePagedRows(filteredStandings)
+
   if (!dbReady || loading) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-8 animate-pulse space-y-6">
@@ -267,7 +291,7 @@ export function InvestorsPage({
           </div>
           <div className="h-9 w-32 bg-ink/10 rounded-md" />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="h-24 bg-ink/10 rounded-md" />
           <div className="h-24 bg-ink/10 rounded-md" />
           <div className="h-24 bg-ink/10 rounded-md" />
@@ -348,7 +372,7 @@ export function InvestorsPage({
         </Card>
 
         {/* Financial KPI Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-6">
           <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
             <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Capital Convenu</p>
             <h3 className="text-lg font-display font-bold text-ink mt-1">{formatMoney(selectedInvestor.agreed_contribution)}</h3>
@@ -564,7 +588,7 @@ export function InvestorsPage({
       )}
 
       {/* Financial stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-6">
         <StatCard
           label="Investisseurs"
           value={totalInvestors}
@@ -606,6 +630,28 @@ export function InvestorsPage({
       </div>
 
       {/* Investors List table */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-ink-soft" />
+          <Input
+            placeholder="Rechercher un associé (nom, téléphone)…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={paymentFilter} onValueChange={(v) => setPaymentFilter(v as typeof paymentFilter)}>
+          <SelectTrigger className="w-full sm:w-52">
+            <SelectValue placeholder="Statut" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les statuts</SelectItem>
+            <SelectItem value="paid">Entièrement libéré</SelectItem>
+            <SelectItem value="owing">Solde restant dû</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
@@ -621,7 +667,7 @@ export function InvestorsPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {standings.map((s) => {
+              {investorPaging.pageRows.map((s) => {
                 const isEditing = editingId === s.id
                 return (
                   <TableRow key={s.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
@@ -750,6 +796,16 @@ export function InvestorsPage({
               )}
             </TableBody>
           </Table>
+        </div>
+
+        <div className="px-4 pb-3">
+          <TablePager
+            page={investorPaging.page}
+            pageSize={investorPaging.pageSize}
+            total={investorPaging.total}
+            onPageChange={investorPaging.setPage}
+            itemLabel="associés"
+          />
         </div>
       </div>
     </div>

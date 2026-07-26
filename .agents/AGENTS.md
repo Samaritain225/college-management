@@ -75,6 +75,12 @@ multi-tenant UI yet — see "Known gaps" below.
    schema constraint enforces this — get it backwards and inserts fail.
 5. **Currency is XOF** — no minor unit. Amounts are plain integers,
    never floats, never cents.
+6. **"How much cash is there" is always contributions of *both* types plus
+   `other_income`.** Two places encode this — the `college_pool` view and
+   `dashboard_summary`'s `total_resources` — and they must agree; change one,
+   change the other. Never compute a balance from cotisation alone: cotisation
+   answers a different question (who owns what stake), and using it as cash is
+   what made the dashboard report a negative balance on a solvent account.
 
 ## Hard-won gotchas (each cost real debugging time — don't rediscover these)
 
@@ -98,6 +104,36 @@ multi-tenant UI yet — see "Known gaps" below.
   is exactly what caused the mobile sidebar sheet to render fully
   transparent (its own dialog backdrop showed through). Any new design
   token must go in `@theme` as `--color-<name>`.
+- **Two paging styles, and they are not interchangeable.** Keyset (opaque
+  `cursorAt` + `id`) for the activity feed, because it writes constantly and an
+  OFFSET boundary shifts under a reader mid-scroll. OFFSET for the expenses grid,
+  because numbered pages must jump to page N and a cursor cannot. Before adding
+  a third, check the row count: only `expenses` (1,801 and growing) is big
+  enough to justify a server round trip at all — categories, investors and users
+  are single- and double-digit and page in memory.
+- **Search short French labels with `pg_trgm` + ILIKE, not full-text.**
+  `to_tsquery('salaire')` does not match "Salaires"; a trigram ILIKE does. Keep
+  both arms of a search OR as predicates on the *same* table — an
+  `or joined_table.col ilike …` forces a join filter and makes the trigram index
+  unusable at any size.
+- **`formatMoney` mixes two kinds of space, and the difference is load-bearing.**
+  Non-breaking inside the number and inside "F CFA"; an ordinary breakable space
+  between them. Make that last one non-breaking and the whole string becomes
+  atomic — it cannot wrap, so it overflows and gets clipped by any card narrower
+  than it, silently and at every viewport.
+- **An IntersectionObserver sentinel inside a scroll container must set
+  `root` to that container.** With the default root it measures against the
+  viewport, so a feed that lives below the fold in its own scroll box never
+  fires no matter how far the reader scrolls inside it. Also give the box left
+  padding if its children are negatively positioned: setting `overflow-y` makes
+  `overflow-x` compute to `auto`, which clips them.
+- **Chart series use `--color-chart-1..5`, never the brand teals.**
+  `--color-teal-950` and `--color-teal-900` measure OKLCH chroma 0.045 and
+  0.059, under the 0.1 categorical floor, and they are near-identical in hue —
+  as adjacent chart segments they read as two grays. The chart tokens are
+  stepped separately for each mode (the dark lightness band is 0.48–0.67 against
+  light's 0.43–0.77, so light values do not carry over) and are validated with
+  the dataviz skill's `validate_palette.js`. Re-run it if you change one.
 - **PostgREST can only embed through a real FK.** `investors.user_id`,
   `expenses.recorded_by`, and `activity_log.user_id` originally pointed
   at `auth.users` (correct for integrity, since that's the real FK
@@ -146,10 +182,11 @@ live in `STATE.md`, not here.
 - Students, teachers and classes have no tables — that is Phase 7. The
   Dashboard's "420 élèves, 18 enseignants" figures are hardcoded mock data in
   `App.tsx`, and the Teachers/Students/Classes screens are placeholders.
-- `other_income` exists as a table with no UI on purpose. It holds lump-sum
-  revenue such as student fees, and it is load-bearing: without it the
-  dashboard understates the pool by roughly 17.6 M FCFA and the treasurer
-  stops trusting the app. See `docs/refactor-plan.md` for the full reasoning.
+- `other_income` still has no write UI on purpose — rows go in by hand. It holds
+  lump-sum revenue such as student fees, and it is by far the largest inflow
+  (178,500,000 of the 231,857,144 pool). It now reads out on the dashboard,
+  because leaving it out of the balance made a healthy account report
+  −102,928,756 F CFA. See `docs/refactor-plan.md` for the full reasoning.
 - Expenses have no line-item table and no work-package table. Each ledger row
   is one expense, and categories carry the grouping.
 

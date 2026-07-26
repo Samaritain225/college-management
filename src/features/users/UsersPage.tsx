@@ -57,7 +57,11 @@ import {
   Calendar,
   Lock,
   Eye,
+  Clock,
 } from "lucide-react"
+import { ActivityFeed } from "@/features/activity/ActivityFeed"
+import { TablePager } from "@/components/TablePager"
+import { usePagedRows } from "@/lib/usePagedRows"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -307,6 +311,10 @@ export function UsersPage({
     return matchesSearch && matchesRole && matchesStatus
   })
 
+  // One profile today, a handful later — paged in memory over the already
+  // fetched list, like the other small tables.
+  const userPaging = usePagedRows(filteredUsers)
+
   const totalActive = users.filter((u) => u.isActive).length
 
   // ---------------------------------------------------------------------------
@@ -493,6 +501,30 @@ export function UsersPage({
                   </div>
                 )}
               </form>
+            </CardContent>
+          </Card>
+
+          {/* Activity history. Scoped by user_id, but that filter is only
+              presentation — activity_log's RLS policy is what actually stops a
+              non-admin from reading anyone else's rows, so this is safe to
+              render for whoever is being viewed. */}
+          <Card className="border border-ink/10 bg-paper">
+            <CardHeader className="border-b border-ink/10 pb-4">
+              <CardTitle className="text-ink font-semibold text-base flex items-center gap-2">
+                <Clock className="size-4 text-ink-soft" />
+                {isMe ? "Mon activité" : "Activité de ce compte"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <ActivityFeed
+                userId={detailUser.id}
+                className="max-h-[30rem]"
+                emptyLabel={
+                  isMe
+                    ? "Vous n'avez encore enregistré aucune action."
+                    : "Ce compte n'a encore enregistré aucune action."
+                }
+              />
             </CardContent>
           </Card>
         </div>
@@ -711,7 +743,7 @@ export function UsersPage({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredUsers.map((user) => {
+            {userPaging.pageRows.map((user) => {
               const isMe = me?.id === user.id
               return (
                 <TableRow key={user.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
@@ -781,6 +813,16 @@ export function UsersPage({
             )}
           </TableBody>
         </Table>
+        </div>
+
+        <div className="px-4 pb-3">
+          <TablePager
+            page={userPaging.page}
+            pageSize={userPaging.pageSize}
+            total={userPaging.total}
+            onPageChange={userPaging.setPage}
+            itemLabel="membres"
+          />
         </div>
       </div>
     </div>

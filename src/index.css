@@ -76,6 +76,23 @@
   --color-terracotta-600: #c2410c;
   --color-terracotta-100: #ffedd5;
 
+  /* Categorical chart slots. NOT the same job as the brand colours above:
+     teal-950/teal-900 are near-identical in hue and too dark and too gray to
+     work as adjacent chart segments (measured OKLCH chroma 0.045 and 0.059,
+     under the 0.1 floor — they read as two grays). These five are stepped into
+     the categorical band instead, teal and terracotta first so the brand still
+     leads. Validated with the dataviz palette checker in both modes: worst
+     adjacent pair ΔE 27.5 normal vision / 10.7 protan (light), 27.0 / 13.4
+     (dark). Assign in slot order, never cycle — a 6th series folds into
+     "Autres" on --color-ink-soft. chart-4 sits at 2.17:1 on paper, which is
+     legal only because every segment carries a labelled amount in the legend;
+     never use it for a mark that stands alone. */
+  --color-chart-1: #0d9488;
+  --color-chart-2: #eb6834;
+  --color-chart-3: #4a3aa7;
+  --color-chart-4: #eda100;
+  --color-chart-5: #2a78d6;
+
   /* Sidebar — must use the --color- prefix (not a plain custom property)
      or Tailwind v4 never generates bg-sidebar/text-sidebar-foreground/etc.
      as real utilities. Without this, the mobile sheet's `bg-sidebar` was a
@@ -148,6 +165,16 @@
   --color-positive-bg: #052e16;
   --color-negative: #f87171;
   --color-negative-bg: #450a0a;
+
+  /* Chart slots re-stepped for the dark surface, not flipped. The dark
+     lightness band is narrower (0.48–0.67 against 0.43–0.77), so the light
+     values do not simply carry over — #14b8a6 sits at 0.704 and fails. Same
+     five hues in the same slot order, validated against #0d1117. */
+  --color-chart-1: #12a594;
+  --color-chart-2: #d95926;
+  --color-chart-3: #9085e9;
+  --color-chart-4: #c98500;
+  --color-chart-5: #3987e5;
 
   /* Sidebar — same surface as --color-paper (#0d1117), not a different
      near-black. They used to be two unrelated dark palettes (this one was

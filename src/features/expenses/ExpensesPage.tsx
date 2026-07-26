@@ -38,15 +38,21 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth"
-import { isDateInPeriod, type Period } from "@/lib/period"
+import { periodRange, type Period } from "@/lib/period"
 import {
   addCategory,
   addExpense,
+  getExpensesPage,
   listCategories,
-  listExpenses,
   type BudgetCategory,
+  type CategoryStat,
   type Expense,
+  type ExpenseStats,
 } from "@/lib/queries"
+import { TablePager } from "@/components/TablePager"
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination"
+import { usePagedRows } from "@/lib/usePagedRows"
+import { useDebounced } from "@/lib/useDebounced"
 import { cn, formatMoney } from "@/lib/utils"
 import { format, startOfToday } from "date-fns"
 import { fr } from "date-fns/locale"
@@ -67,7 +73,7 @@ import {
   XCircle,
   Paperclip,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 function formatAmountInput(val: string): string {
   const digits = val.replace(/\D/g, "")
@@ -77,7 +83,9 @@ function formatAmountInput(val: string): string {
 
 type TabMode = "expenses" | "categories"
 
-let expensesCache: { expenses: Expense[]; categories: BudgetCategory[] } | null = null
+// Categories only. Expenses are a server-paged slice now, so caching "the
+// expenses" would cache whichever page happened to be open last.
+let categoriesCache: BudgetCategory[] | null = null
 
 export function ExpensesPage({
   onChange,
@@ -91,9 +99,9 @@ export function ExpensesPage({
   onNavigateToTab?: (tab: any) => void
 }) {
   const { user } = useAuth()
-  const [expenses, setExpenses] = useState<Expense[]>(expensesCache?.expenses ?? [])
-  const [categories, setCategories] = useState<BudgetCategory[]>(expensesCache?.categories ?? [])
-  const [loading, setLoading] = useState(!expensesCache)
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [categories, setCategories] = useState<BudgetCategory[]>(categoriesCache ?? [])
+  const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabMode>(mode)
 
   useEffect(() => {
@@ -134,6 +142,12 @@ export function ExpensesPage({
     setCategorySheetOpen(true)
   }
 
+  // The sheet's history used to be filtered out of the full in-memory ledger.
+  // With the grid server-paged that array is one page of ten, so this fetches
+  // the category's own rows instead of showing whatever happened to be loaded.
+  const [catSheetExpenses, setCatSheetExpenses] = useState<Expense[]>([])
+  const [catSheetLoading, setCatSheetLoading] = useState(false)
+
   // Filters and search
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
@@ -144,24 +158,99 @@ export function ExpensesPage({
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
 
-  async function refresh() {
+  // Server-side paging state. The grid no longer holds the whole ledger —
+  // `expenses` is one page of ten, and `total` is how many match the filters.
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [stats, setStats] = useState<ExpenseStats>({
+    totalCount: 0,
+    totalAmount: 0,
+    avgAmount: 0,
+    todayCount: 0,
+    todayAmount: 0,
+  })
+  const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([])
+  const [pageLoading, setPageLoading] = useState(false)
+
+  // Typing in the search box should not fire a query per keystroke.
+  const debouncedSearch = useDebounced(searchQuery, 300)
+
+  // Any filter change invalidates the current page number — staying on page 7
+  // of a result set that now has two pages shows an empty table.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch, selectedCategory, selectedPeriod])
+
+  const loadPage = useCallback(async () => {
+    if (!dbReady) return
+    setPageLoading(true)
+    try {
+      const range = periodRange(selectedPeriod)
+      const res = await getExpensesPage({
+        search: debouncedSearch,
+        categoryId: selectedCategory === "all" ? null : selectedCategory,
+        from: range.from,
+        to: range.to,
+        page,
+        pageSize: DEFAULT_PAGE_SIZE,
+      })
+      setExpenses(res.rows)
+      setTotal(res.total)
+      setStats(res.stats)
+      setCategoryStats(res.categoryStats)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setPageLoading(false)
+      setLoading(false)
+    }
+  }, [dbReady, debouncedSearch, selectedCategory, selectedPeriod, page])
+
+  async function loadCategories() {
     if (!dbReady) return
     try {
-      const [exp, cats] = await Promise.all([listExpenses(), listCategories()])
-      expensesCache = { expenses: exp, categories: cats }
-      setExpenses(exp)
+      const cats = await listCategories()
+      categoriesCache = cats
       setCategories(cats)
       if (!categoryId && cats[0]) setCategoryId(cats[0].id)
     } catch (e) {
       console.error(e)
-    } finally {
-      setLoading(false)
     }
   }
 
+  /** After a write — re-read both the page and the category list. */
+  async function refresh() {
+    await Promise.all([loadPage(), loadCategories()])
+  }
+
   useEffect(() => {
-    refresh()
+    void loadPage()
+  }, [loadPage])
+
+  useEffect(() => {
+    void loadCategories()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady])
+
+  useEffect(() => {
+    const cat = selectedCategoryDetails
+    if (!cat || !dbReady) return
+    let cancelled = false
+    setCatSheetLoading(true)
+    getExpensesPage({ categoryId: cat.id, page: 1, pageSize: 200 })
+      .then((res) => {
+        // Guard against a slow reply for a previously opened category landing
+        // after the user has switched to another one.
+        if (!cancelled) setCatSheetExpenses(res.rows)
+      })
+      .catch((e) => console.error(e))
+      .finally(() => {
+        if (!cancelled) setCatSheetLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCategoryDetails, dbReady])
 
   function resetExpenseForm() {
     setCategoryId(categories[0]?.id || "")
@@ -282,56 +371,28 @@ export function ExpensesPage({
     }
   }
 
-  // Category aggregations map
-  const categoryStats = useMemo(() => {
+  // Category aggregations, computed server-side over the whole period rather
+  // than over whatever page is loaded. Kept as a Map so the callers below read
+  // exactly as they did.
+  const categoryStatsMap = useMemo(() => {
     const map = new Map<string, { total: number; count: number }>()
-    for (const e of expenses) {
-      if (!isDateInPeriod(e.spent_at, selectedPeriod)) continue
-      const current = map.get(e.category_id) || { total: 0, count: 0 }
-      map.set(e.category_id, {
-        total: current.total + e.amount,
-        count: current.count + 1,
-      })
-    }
+    for (const c of categoryStats) map.set(c.categoryId, { total: c.total, count: c.count })
     return map
-  }, [expenses, selectedPeriod])
+  }, [categoryStats])
 
-  // Filtered expenses list
-  const filteredExpenses = useMemo(() => {
-    return expenses.filter((e) => {
-      const matchesSearch =
-        e.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.category_name.toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesCategory =
-        selectedCategory === "all" || e.category_id === selectedCategory
-      const matchesPeriod = isDateInPeriod(e.spent_at, selectedPeriod)
-      return matchesSearch && matchesCategory && matchesPeriod
-    })
-  }, [expenses, searchQuery, selectedCategory, selectedPeriod])
+  // Already the filtered page — search, category and period are applied by
+  // `expenses_page`, so there is nothing left to filter here.
+  const filteredExpenses = expenses
 
-  // Expense KPIs calculation
-  const expenseKpis = useMemo(() => {
-    const periodExpenses = expenses.filter((e) => isDateInPeriod(e.spent_at, selectedPeriod))
-    const totalCount = periodExpenses.length
-    const totalAmount = periodExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
-    const avgAmount = totalCount > 0 ? Math.round(totalAmount / totalCount) : 0
-
-    const todayStr = new Date().toISOString().split("T")[0]
-    const todayExpenses = periodExpenses.filter((e) => {
-      if (!e.spent_at) return false
-      return e.spent_at.startsWith(todayStr)
-    })
-    const todayCount = todayExpenses.length
-    const todayAmount = todayExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
-
-    return {
-      totalCount,
-      totalAmount,
-      avgAmount,
-      todayCount,
-      todayAmount,
-    }
-  }, [expenses, selectedPeriod])
+  // KPIs come back with the page, scoped to the period (not to search or
+  // category) — the same scope this strip always described.
+  const expenseKpis = {
+    totalCount: stats.totalCount,
+    totalAmount: stats.totalAmount,
+    avgAmount: stats.avgAmount,
+    todayCount: stats.todayCount,
+    todayAmount: stats.todayAmount,
+  }
 
   // Filtered categories list
   const filteredCategories = useMemo(() => {
@@ -343,6 +404,10 @@ export function ExpensesPage({
       )
     })
   }, [categories, categorySearchQuery])
+
+  // In memory: nine categories. A round trip per page click would be slower
+  // than slicing an array we already hold.
+  const categoryPaging = usePagedRows(filteredCategories)
 
   function handleConsult(expense: Expense) {
     setSelectedExpense(expense)
@@ -506,7 +571,12 @@ export function ExpensesPage({
 
           {/* Expenses Datatable */}
           <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
-            <div className="overflow-x-auto">
+            <div
+              className={cn(
+                "overflow-x-auto transition-opacity",
+                pageLoading && "opacity-50"
+              )}
+            >
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-ink/10">
@@ -552,7 +622,7 @@ export function ExpensesPage({
                   </TableRow>
                 ))}
 
-                {filteredExpenses.length === 0 && (
+                {filteredExpenses.length === 0 && !pageLoading && (
                   <TableRow>
                     <TableCell colSpan={6} className="h-32 text-center text-ink-soft">
                       <div className="flex flex-col items-center justify-center space-y-1">
@@ -568,6 +638,16 @@ export function ExpensesPage({
                 )}
               </TableBody>
             </Table>
+            </div>
+
+            <div className="px-4 pb-3">
+              <TablePager
+                page={page}
+                pageSize={DEFAULT_PAGE_SIZE}
+                total={total}
+                onPageChange={setPage}
+                itemLabel="dépenses"
+              />
             </div>
           </div>
         </div>
@@ -600,7 +680,7 @@ export function ExpensesPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredCategories.map((c) => (
+                {categoryPaging.pageRows.map((c) => (
                   <TableRow key={c.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
                     <TableCell className="py-3 font-semibold text-xs text-ink font-display">
                       {c.name}
@@ -643,6 +723,16 @@ export function ExpensesPage({
                 )}
               </TableBody>
             </Table>
+
+            <div className="px-4 pb-3">
+              <TablePager
+                page={categoryPaging.page}
+                pageSize={categoryPaging.pageSize}
+                total={categoryPaging.total}
+                onPageChange={categoryPaging.setPage}
+                itemLabel="catégories"
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1033,8 +1123,8 @@ export function ExpensesPage({
       <Sheet open={categorySheetOpen} onOpenChange={setCategorySheetOpen}>
         <SheetContent className="w-full sm:max-w-md p-6 bg-paper border-l border-ink/10">
           {selectedCategoryDetails && (() => {
-            const stats = categoryStats.get(selectedCategoryDetails.id) || { total: 0, count: 0 }
-            const catExpenses = expenses.filter((e) => e.category_id === selectedCategoryDetails.id)
+            const stats = categoryStatsMap.get(selectedCategoryDetails.id) || { total: 0, count: 0 }
+            const catExpenses = catSheetExpenses
 
             return (
               <div className="space-y-6 h-full flex flex-col">
@@ -1072,7 +1162,7 @@ export function ExpensesPage({
                 <div className="space-y-3 flex-1 overflow-y-auto">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-display font-semibold text-ink">
-                      Historique des Dépenses ({catExpenses.length})
+                      Historique des Dépenses ({catSheetLoading ? "…" : catExpenses.length})
                     </h3>
                     <Button
                       variant="ghost"

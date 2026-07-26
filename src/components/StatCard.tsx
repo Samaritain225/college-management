@@ -30,14 +30,30 @@ export function StatCard({
   if (variant === "card") {
     return (
       <Card className={cn("border border-ink/10 shadow-2xs hover:shadow-xs transition-shadow bg-paper", className)}>
-        <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-          <CardTitle className="text-xs font-display font-semibold text-ink-soft">{label}</CardTitle>
-          <div className={cn("flex h-8 w-8 items-center justify-center rounded-lg", iconClassName)}>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-2">
+          <CardTitle className="min-w-0 text-xs font-display font-semibold text-ink-soft">
+            {label}
+          </CardTitle>
+          <div
+            className={cn(
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+              iconClassName
+            )}
+          >
             <Icon className="size-4" />
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-4">
-          <div className={cn("text-2xl font-display font-bold tracking-tight", valueClassName)}>{value}</div>
+          {/* text-balance so a wrapped amount splits evenly instead of leaving
+              a lone "F CFA" on line two. */}
+          <div
+            className={cn(
+              "text-xl sm:text-2xl font-display font-bold tracking-tight text-balance tabular-nums",
+              valueClassName
+            )}
+          >
+            {value}
+          </div>
           <p className="text-xs text-ink-soft mt-1">{footer}</p>
         </CardContent>
       </Card>
@@ -51,12 +67,16 @@ export function StatCard({
         className
       )}
     >
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
+      <div className="flex items-start justify-between gap-2">
+        {/* min-w-0 is what lets the amount wrap at all — without it this column
+            keeps its content width and overflows the card instead. */}
+        <div className="min-w-0 space-y-1">
           <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">{label}</p>
-          <h3 className={cn("text-lg font-display font-bold", valueClassName)}>{value}</h3>
+          <h3 className={cn("text-lg font-display font-bold text-balance tabular-nums", valueClassName)}>
+            {value}
+          </h3>
         </div>
-        <div className={cn("p-2 rounded-lg", iconClassName)}>
+        <div className={cn("p-2 rounded-lg shrink-0", iconClassName)}>
           <Icon className="size-4" />
         </div>
       </div>
