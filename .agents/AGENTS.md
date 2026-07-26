@@ -42,6 +42,12 @@ multi-tenant UI yet — see "Known gaps" below.
   Don't rename UI-facing fields to match the DB without checking every
   consumer.
 - `src/lib/adminUsers.ts` — client for the Edge Function above.
+- `src/lib/settings.tsx` — college identity (name, logo key, address, phone,
+  academic year) is stored in the `colleges` table, not localStorage.
+  localStorage holds only a display cache so the login screen can show branding
+  before a session exists. It used to be localStorage-only, which made the
+  college name per-browser — renaming it on one laptop changed nothing for
+  anyone else. Never write settings there as the source of truth again.
 - `docs/refactor-plan.md` — the architecture decisions and why, plus
   open business questions.
 - `docs/phase-0-checklist.md`, `docs/animation-backlog.md` — narrower,
