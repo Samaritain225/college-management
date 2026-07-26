@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { StatCard } from "@/components/StatCard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -564,65 +565,44 @@ export function InvestorsPage({
 
       {/* Financial stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
-        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Investisseurs</p>
-              <h3 className="text-lg font-display font-bold text-ink">{totalInvestors}</h3>
-            </div>
-            <div className="p-2 rounded-lg bg-teal-100 text-teal-950">
-              <Users className="size-4" />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-ink/10 text-xs text-ink-soft font-display">
-            <span>{totalInvestors} {totalInvestors > 1 ? "associés inscrits" : "associé inscrit"}</span>
-          </div>
-        </Card>
-
-        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Capital Convenu</p>
-              <h3 className="text-lg font-display font-bold text-ink">{formatMoney(totalAgreed)}</h3>
-            </div>
-            <div className="p-2 rounded-lg bg-teal-100/60 text-teal-950">
-              <Wallet className="size-4" />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-ink/10 text-xs text-ink-soft font-display">
-            <span>Engagement global</span>
-          </div>
-        </Card>
-
-        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Total Investi</p>
-              <h3 className="text-lg font-display font-bold text-positive">{formatMoney(totalPaid)}</h3>
-            </div>
-            <div className="p-2 rounded-lg bg-positive-bg text-positive">
-              <Coins className="size-4" />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-ink/10 text-xs text-positive font-display font-semibold">
-            <span>{totalAgreed > 0 ? Math.round((totalPaid / totalAgreed) * 100) : 0}% du capital convenu</span>
-          </div>
-        </Card>
-
-        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Reste à Libérer</p>
-              <h3 className="text-lg font-display font-bold text-negative">{formatMoney(totalOwed)}</h3>
-            </div>
-            <div className="p-2 rounded-lg bg-terracotta-100 text-terracotta-600">
-              <Scale className="size-4" />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-ink/10 text-xs text-terracotta-600 font-display font-semibold">
-            <span>{unpaidCount > 0 ? `${unpaidCount} ${unpaidCount > 1 ? "associés en attente" : "associé en attente"}` : "Aucun solde dû"}</span>
-          </div>
-        </Card>
+        <StatCard
+          label="Investisseurs"
+          value={totalInvestors}
+          icon={Users}
+          iconClassName="bg-teal-100 text-teal-950"
+          footer={`${totalInvestors} ${totalInvestors > 1 ? "associés inscrits" : "associé inscrit"}`}
+        />
+        <StatCard
+          label="Capital Convenu"
+          value={formatMoney(totalAgreed)}
+          icon={Wallet}
+          iconClassName="bg-teal-100/60 text-teal-950"
+          footer="Engagement global"
+        />
+        <StatCard
+          label="Total Investi"
+          value={formatMoney(totalPaid)}
+          valueClassName="text-positive"
+          icon={Coins}
+          iconClassName="bg-positive-bg text-positive"
+          footer={
+            <span className="text-positive">
+              {totalAgreed > 0 ? Math.round((totalPaid / totalAgreed) * 100) : 0}% du capital convenu
+            </span>
+          }
+        />
+        <StatCard
+          label="Reste à Libérer"
+          value={formatMoney(totalOwed)}
+          valueClassName="text-negative"
+          icon={Scale}
+          iconClassName="bg-terracotta-100 text-terracotta-600"
+          footer={
+            <span className="text-terracotta-600">
+              {unpaidCount > 0 ? `${unpaidCount} ${unpaidCount > 1 ? "associés en attente" : "associé en attente"}` : "Aucun solde dû"}
+            </span>
+          }
+        />
       </div>
 
       {/* Investors List table */}

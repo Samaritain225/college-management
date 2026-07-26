@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { PeriodFilter } from "@/components/PeriodFilter"
+import { StatCard } from "@/components/StatCard"
 import { BudgetBar, type CategorySpend } from "./BudgetBar"
 import { RecentActivities } from "./RecentActivities"
 import { formatMoney } from "@/lib/utils"
 import { useAuth } from "@/lib/auth"
+import { isDateInPeriod, type Period } from "@/lib/period"
 import {
   getPoolTotal,
   getTotalContributed,
@@ -19,11 +21,9 @@ import {
   type Expense,
   type UserActivityLog,
 } from "@/lib/queries"
-import { Sun, Moon, Venus, Mars, Wallet, Coins, Scale, CreditCard, Calendar } from "lucide-react"
+import { Sun, Moon, Venus, Mars, Wallet, Coins, Scale, CreditCard } from "lucide-react"
 
 const PALETTE = ["bg-teal-950", "bg-terracotta-600", "bg-positive", "bg-teal-900", "bg-ink-soft"]
-
-type Period = "all" | "this_month" | "this_quarter" | "this_year"
 
 interface ChartDataPoint {
   month: string
@@ -31,28 +31,18 @@ interface ChartDataPoint {
   spent: number
 }
 
-function isDateInPeriod(dateStr: string, period: Period): boolean {
-  if (period === "all") return true
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return true
-  const now = new Date()
-
-  if (period === "this_month") {
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
-  }
-
-  if (period === "this_quarter") {
-    const currentQ = Math.floor(now.getMonth() / 3)
-    const dateQ = Math.floor(d.getMonth() / 3)
-    return d.getFullYear() === now.getFullYear() && dateQ === currentQ
-  }
-
-  if (period === "this_year") {
-    return d.getFullYear() === now.getFullYear()
-  }
-
-  return true
+interface DashboardCacheData {
+  pool: number
+  baseContributed: number
+  baseSpent: number
+  byCategory: CategorySpend[]
+  activities: Activity[]
+  userActivities: UserActivityLog[]
+  allContribs: Contribution[]
+  allExps: Expense[]
 }
+
+let dashboardCache: DashboardCacheData | null = null
 
 export function Dashboard({
   refreshKey,
@@ -65,16 +55,18 @@ export function Dashboard({
 }) {
   const { user } = useAuth()
   const [period, setPeriod] = useState<Period>("all")
-  const [pool, setPool] = useState(0)
-  const [baseContributed, setBaseContributed] = useState(0)
-  const [baseSpent, setBaseSpent] = useState(0)
-  const [byCategory, setByCategory] = useState<CategorySpend[]>([])
-  const [activities, setActivities] = useState<Activity[]>([])
-  const [userActivities, setUserActivities] = useState<UserActivityLog[]>([])
-  const [loading, setLoading] = useState(true)
+  const [pool, setPool] = useState(dashboardCache?.pool ?? 0)
+  const [baseContributed, setBaseContributed] = useState(dashboardCache?.baseContributed ?? 0)
+  const [baseSpent, setBaseSpent] = useState(dashboardCache?.baseSpent ?? 0)
+  const [byCategory, setByCategory] = useState<CategorySpend[]>(dashboardCache?.byCategory ?? [])
+  const [activities, setActivities] = useState<Activity[]>(dashboardCache?.activities ?? [])
+  const [userActivities, setUserActivities] = useState<UserActivityLog[]>(dashboardCache?.userActivities ?? [])
+  const [loading, setLoading] = useState(!dashboardCache)
+  const [loadError, setLoadError] = useState(false)
+  const [retryTick, setRetryTick] = useState(0)
 
-  const [allContribs, setAllContribs] = useState<Contribution[]>([])
-  const [allExps, setAllExps] = useState<Expense[]>([])
+  const [allContribs, setAllContribs] = useState<Contribution[]>(dashboardCache?.allContribs ?? [])
+  const [allExps, setAllExps] = useState<Expense[]>(dashboardCache?.allExps ?? [])
 
   const [randomGreeting, setRandomGreeting] = useState("")
 
@@ -109,6 +101,7 @@ export function Dashboard({
 
     async function load() {
       try {
+        setLoadError(false)
         const [p, c, s, cats, acts, userActs, contribs, exps] = await Promise.all([
           getPoolTotal(),
           getTotalContributed(),
@@ -119,22 +112,38 @@ export function Dashboard({
           listContributions(),
           listExpenses(),
         ])
+        const mappedCats = cats.map((cat, i) => ({ ...cat, color: PALETTE[i % PALETTE.length] }))
+
+        dashboardCache = {
+          pool: p,
+          baseContributed: c,
+          baseSpent: s,
+          byCategory: mappedCats,
+          activities: acts,
+          userActivities: userActs,
+          allContribs: contribs,
+          allExps: exps,
+        }
+
         setPool(p)
         setBaseContributed(c)
         setBaseSpent(s)
-        setByCategory(cats.map((cat, i) => ({ ...cat, color: PALETTE[i % PALETTE.length] })))
+        setByCategory(mappedCats)
         setActivities(acts)
         setUserActivities(userActs)
         setAllContribs(contribs)
         setAllExps(exps)
       } catch (err) {
         console.error("Dashboard failed to load database stats:", err)
+        if (!dashboardCache) {
+          setLoadError(true)
+        }
       } finally {
         setLoading(false)
       }
     }
     load()
-  }, [refreshKey, dbReady])
+  }, [refreshKey, dbReady, retryTick])
 
   // Compute period-filtered stats
   const filteredContribs = allContribs.filter((c) => isDateInPeriod(c.paid_at, period))
@@ -189,6 +198,27 @@ export function Dashboard({
     )
   }
 
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-16 flex flex-col items-center gap-3 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-negative-bg text-negative">
+          <Scale className="size-5" />
+        </div>
+        <p className="font-display font-semibold text-ink">Impossible de charger le tableau de bord</p>
+        <p className="text-sm text-ink-soft max-w-sm">
+          Vérifiez votre connexion et réessayez. Les chiffres affichés ne reflètent pas forcément l'état réel du compte.
+        </p>
+        <button
+          type="button"
+          onClick={() => setRetryTick((t) => t + 1)}
+          className="mt-2 rounded-full bg-teal-950 text-white text-sm font-display font-semibold px-4 py-2 hover:bg-teal-900 transition-colors"
+        >
+          Réessayer
+        </button>
+      </div>
+    )
+  }
+
   // Generate SVG coordinates for Area Chart
   const maxValue = Math.max(...chartData.map((d) => Math.max(d.contributed, d.spent)), 10000) * 1.15
   const chartHeight = 140
@@ -222,83 +252,53 @@ export function Dashboard({
             </h1>
           </div>
         </div>
-        {/* Period Filter Dropdown */}
-        <Select value={period} onValueChange={(val) => setPeriod(val as Period)}>
-          <SelectTrigger className="h-8 text-xs bg-paper border-ink/15 text-ink min-w-[150px] font-display font-semibold">
-            <Calendar className="size-3.5 mr-1.5 text-ink-soft shrink-0" />
-            <SelectValue placeholder="Période" />
-          </SelectTrigger>
-          <SelectContent className="bg-paper border-ink/10">
-            <SelectItem value="all">Toutes les périodes</SelectItem>
-            <SelectItem value="this_month">Ce mois-ci</SelectItem>
-            <SelectItem value="this_quarter">Ce trimestre</SelectItem>
-            <SelectItem value="this_year">Cette année ({new Date().getFullYear()})</SelectItem>
-          </SelectContent>
-        </Select>
+        <PeriodFilter value={period} onChange={setPeriod} />
       </header>
 
       {/* Financial stats cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
-        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Fonds Engagé</p>
-              <h3 className="text-lg font-display font-bold text-ink">{formatMoney(pool)}</h3>
-            </div>
-            <div className="p-2 rounded-lg bg-teal-100/60 text-teal-950">
-              <Wallet className="size-4" />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-ink/10 text-xs text-ink-soft font-display">
-            <span>Enveloppe globale théorique</span>
-          </div>
-        </Card>
-
-        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Fonds Libéré</p>
-              <h3 className="text-lg font-display font-bold text-ink">{formatMoney(contributed)}</h3>
-            </div>
-            <div className="p-2 rounded-lg bg-teal-100 text-teal-950">
-              <Coins className="size-4" />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-ink/10 text-xs text-teal-950 font-display font-semibold">
-            <span>{pool > 0 ? Math.round((contributed / pool) * 100) : 0}% du budget alloué</span>
-          </div>
-        </Card>
-
-        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Fonds Dépensé</p>
-              <h3 className="text-lg font-display font-bold text-ink">{formatMoney(spent)}</h3>
-            </div>
-            <div className="p-2 rounded-lg bg-terracotta-100 text-terracotta-600">
-              <CreditCard className="size-4" />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-ink/10 text-xs text-terracotta-600 font-display font-semibold">
-            <span>{contributed > 0 ? Math.round((spent / contributed) * 100) : 0}% des contributions</span>
-          </div>
-        </Card>
-
-        <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Solde Restant</p>
-              <h3 className="text-lg font-display font-bold text-positive">{formatMoney(remaining)}</h3>
-            </div>
-            <div className="p-2 rounded-lg bg-positive-bg text-positive">
-              <Scale className="size-4" />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-ink/10 flex items-center gap-1.5 text-xs text-positive font-display font-semibold">
-            <span className="h-1.5 w-1.5 rounded-full bg-positive animate-pulse shrink-0" />
-            <span>Fonds disponibles</span>
-          </div>
-        </Card>
+        <StatCard
+          label="Fonds Engagé"
+          value={formatMoney(pool)}
+          icon={Wallet}
+          iconClassName="bg-teal-100/60 text-teal-950"
+          footer="Enveloppe globale théorique"
+        />
+        <StatCard
+          label="Fonds Libéré"
+          value={formatMoney(contributed)}
+          icon={Coins}
+          iconClassName="bg-teal-100 text-teal-950"
+          footer={
+            <span className="text-teal-950">
+              {pool > 0 ? Math.round((contributed / pool) * 100) : 0}% du budget alloué
+            </span>
+          }
+        />
+        <StatCard
+          label="Fonds Dépensé"
+          value={formatMoney(spent)}
+          icon={CreditCard}
+          iconClassName="bg-terracotta-100 text-terracotta-600"
+          footer={
+            <span className="text-terracotta-600">
+              {contributed > 0 ? Math.round((spent / contributed) * 100) : 0}% des contributions
+            </span>
+          }
+        />
+        <StatCard
+          label="Solde Restant"
+          value={formatMoney(remaining)}
+          valueClassName="text-positive"
+          icon={Scale}
+          iconClassName="bg-positive-bg text-positive"
+          footer={
+            <span className="flex items-center gap-1.5 text-positive">
+              <span className="h-1.5 w-1.5 rounded-full bg-positive animate-pulse shrink-0" />
+              Fonds disponibles
+            </span>
+          }
+        />
       </div>
 
       {/* School Statistics (Enseignants, Élèves, Classes) */}
@@ -312,8 +312,8 @@ export function Dashboard({
           <div className="relative h-24 w-24 my-2 shrink-0">
             <svg className="w-full h-full transform -rotate-90" viewBox="0 0 64 64">
               <circle cx="32" cy="32" r="26" fill="transparent" stroke="currentColor" className="text-ink/10" strokeWidth="4" />
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="#ea580c" strokeWidth="4" strokeDasharray="84.95 78.41" strokeDashoffset="0" />
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="#042f2e" strokeWidth="4" strokeDasharray="78.41 84.95" strokeDashoffset="-84.95" />
+              <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-terracotta-600)" strokeWidth="4" strokeDasharray="84.95 78.41" strokeDashoffset="0" />
+              <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-teal-950)" strokeWidth="4" strokeDasharray="78.41 84.95" strokeDashoffset="-84.95" />
               <text x="32" y="32" textAnchor="middle" className="fill-ink font-display font-bold text-xs" transform="rotate(90 32 32)">420</text>
               <text x="32" y="42" textAnchor="middle" className="fill-ink-soft font-sans text-[9px]" transform="rotate(90 32 32)">Élèves</text>
             </svg>
@@ -340,8 +340,8 @@ export function Dashboard({
           <div className="relative h-24 w-24 my-2 shrink-0">
             <svg className="w-full h-full transform -rotate-90" viewBox="0 0 64 64">
               <circle cx="32" cy="32" r="26" fill="transparent" stroke="currentColor" className="text-ink/10" strokeWidth="4" />
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="#042f2e" strokeWidth="4" strokeDasharray="89.85 73.51" strokeDashoffset="0" />
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="#ea580c" strokeWidth="4" strokeDasharray="73.51 89.85" strokeDashoffset="-89.85" />
+              <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-teal-950)" strokeWidth="4" strokeDasharray="89.85 73.51" strokeDashoffset="0" />
+              <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-terracotta-600)" strokeWidth="4" strokeDasharray="73.51 89.85" strokeDashoffset="-89.85" />
               <text x="32" y="32" textAnchor="middle" className="fill-ink font-display font-bold text-xs" transform="rotate(90 32 32)">18</text>
               <text x="32" y="42" textAnchor="middle" className="fill-ink-soft font-sans text-[9px]" transform="rotate(90 32 32)">Actifs</text>
             </svg>
@@ -365,13 +365,13 @@ export function Dashboard({
 
           <div className="w-full space-y-1.5 py-2 flex-1">
             {([
-              { label: "6ème",        count: 2, max: 2, color: "#042f2e" },
-              { label: "5ème",        count: 2, max: 2, color: "#134e4a" },
-              { label: "4ème",        count: 1, max: 2, color: "#ea580c" },
-              { label: "3ème",        count: 2, max: 2, color: "#16a34a" },
-              { label: "2nde",        count: 2, max: 2, color: "#042f2e" },
-              { label: "1ère",        count: 2, max: 2, color: "#ea580c" },
-              { label: "Terminale",   count: 1, max: 2, color: "#dc2626" },
+              { label: "6ème",        count: 2, max: 2, color: "var(--color-teal-950)" },
+              { label: "5ème",        count: 2, max: 2, color: "var(--color-teal-900)" },
+              { label: "4ème",        count: 1, max: 2, color: "var(--color-terracotta-600)" },
+              { label: "3ème",        count: 2, max: 2, color: "var(--color-positive)" },
+              { label: "2nde",        count: 2, max: 2, color: "var(--color-teal-950)" },
+              { label: "1ère",        count: 2, max: 2, color: "var(--color-terracotta-600)" },
+              { label: "Terminale",   count: 1, max: 2, color: "var(--color-negative)" },
             ] as { label: string; count: number; max: number; color: string }[]).map(({ label, count, max, color }) => (
               <div key={label} className="flex items-center gap-2">
                 <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
@@ -432,12 +432,12 @@ export function Dashboard({
               <svg className="w-full h-full" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="grad-contrib" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#042f2e" stopOpacity="0.25" />
-                    <stop offset="100%" stopColor="#042f2e" stopOpacity="0.0" />
+                    <stop offset="0%" stopColor="var(--color-teal-950)" stopOpacity="0.25" />
+                    <stop offset="100%" stopColor="var(--color-teal-950)" stopOpacity="0.0" />
                   </linearGradient>
                   <linearGradient id="grad-spent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#ea580c" stopOpacity="0.2" />
-                    <stop offset="100%" stopColor="#ea580c" stopOpacity="0.0" />
+                    <stop offset="0%" stopColor="var(--color-terracotta-600)" stopOpacity="0.2" />
+                    <stop offset="100%" stopColor="var(--color-terracotta-600)" stopOpacity="0.0" />
                   </linearGradient>
                 </defs>
 
@@ -448,11 +448,11 @@ export function Dashboard({
 
                 {/* Contributed Area & Line */}
                 <path d={getAreaPath("contributed")} fill="url(#grad-contrib)" />
-                <path d={getPointsPath("contributed")} fill="none" stroke="#042f2e" strokeWidth="2.5" strokeLinecap="round" className="animate-line" />
+                <path d={getPointsPath("contributed")} fill="none" stroke="var(--color-teal-950)" strokeWidth="2.5" strokeLinecap="round" className="animate-line" />
 
                 {/* Spent Area & Line */}
                 <path d={getAreaPath("spent")} fill="url(#grad-spent)" />
-                <path d={getPointsPath("spent")} fill="none" stroke="#ea580c" strokeWidth="2.5" strokeLinecap="round" className="animate-line" />
+                <path d={getPointsPath("spent")} fill="none" stroke="var(--color-terracotta-600)" strokeWidth="2.5" strokeLinecap="round" className="animate-line" />
 
                 {/* Dashed Hover vertical line & circle intersection points */}
                 {hoveredIndex !== null && (
@@ -471,16 +471,16 @@ export function Dashboard({
                       cx={(hoveredIndex / (chartData.length - 1)) * chartWidth}
                       cy={chartHeight - (chartData[hoveredIndex].contributed / maxValue) * (chartHeight - 30)}
                       r="4.5"
-                      fill="#042f2e"
-                      stroke="white"
+                      fill="var(--color-teal-950)"
+                      stroke="var(--color-paper)"
                       strokeWidth="1.5"
                     />
                     <circle
                       cx={(hoveredIndex / (chartData.length - 1)) * chartWidth}
                       cy={chartHeight - (chartData[hoveredIndex].spent / maxValue) * (chartHeight - 30)}
                       r="4.5"
-                      fill="#ea580c"
-                      stroke="white"
+                      fill="var(--color-terracotta-600)"
+                      stroke="var(--color-paper)"
                       strokeWidth="1.5"
                     />
                   </>
