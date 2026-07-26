@@ -46,6 +46,16 @@
     font-feature-settings: "tnum" 1, "cv11" 1; /* tabular numbers for money */
     transition: background-color 200ms ease, color 200ms ease;
     overflow-x: hidden;
+    /* Keep content clear of the notch/home-indicator when installed as a
+       PWA (viewport-fit=cover in index.html) or run fullscreen. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    /* Prevent the double-tap-to-zoom / tap-highlight flash that makes a
+       web page feel like a browser tab instead of an installed app. */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
   h1, h2, h3, h4, .font-display {
     font-family: var(--font-display);
