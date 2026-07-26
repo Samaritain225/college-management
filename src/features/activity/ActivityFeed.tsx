@@ -11,11 +11,12 @@ import { formatActivityItem, relativeTime } from "./formatActivity"
 
 export function ActivityRow({ act }: { act: UserActivityLog }) {
   const formatted = formatActivityItem(act)
-  const isContrib = formatted.type === "contribution"
+  // Contributions and other income are both money in and render identically.
+  const isInflow = formatted.type === "contribution" || formatted.type === "income"
   const isExpense = formatted.type === "expense"
-  const amountColor = isContrib ? "text-positive" : isExpense ? "text-terracotta-600" : "text-ink"
-  const amountBg = isContrib ? "bg-positive/8" : isExpense ? "bg-terracotta-600/8" : "bg-ink/5"
-  const iconColor = isContrib ? "text-positive" : isExpense ? "text-terracotta-600" : "text-teal-950"
+  const amountColor = isInflow ? "text-positive" : isExpense ? "text-terracotta-600" : "text-ink"
+  const amountBg = isInflow ? "bg-positive/8" : isExpense ? "bg-terracotta-600/8" : "bg-ink/5"
+  const iconColor = isInflow ? "text-positive" : isExpense ? "text-terracotta-600" : "text-teal-950"
 
   return (
     <div className="relative flex items-start justify-between gap-3">
@@ -25,7 +26,7 @@ export function ActivityRow({ act }: { act: UserActivityLog }) {
           iconColor
         )}
       >
-        {isContrib ? (
+        {isInflow ? (
           <TrendingUp className="size-3" />
         ) : isExpense ? (
           <TrendingDown className="size-3" />
@@ -42,7 +43,7 @@ export function ActivityRow({ act }: { act: UserActivityLog }) {
           {formatted.amount !== null && (
             <div className={cn("shrink-0 rounded-md px-2 py-0.5", amountBg)}>
               <span className={cn("text-[11px] font-bold font-mono tabular-nums", amountColor)}>
-                {isContrib ? "+" : isExpense ? "−" : ""}
+                {isInflow ? "+" : isExpense ? "−" : ""}
                 {formatMoney(formatted.amount)}
               </span>
             </div>

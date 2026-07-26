@@ -5,7 +5,10 @@ export interface FormattedActivity {
   actionText: string
   subtitle: string
   amount: number | null
-  type: "expense" | "contribution" | "info"
+  /** Drives the icon and colour only. "contribution" and "income" are both
+   *  inflows and render identically; they stay distinct because the copy above
+   *  them differs and conflating them would invite the wrong wording. */
+  type: "expense" | "contribution" | "income" | "info"
 }
 
 export function relativeTime(dateStr: string): string {
@@ -46,6 +49,30 @@ export function formatActivityItem(act: UserActivityLog): FormattedActivity {
         subtitle: meta.investorName ? `Investisseur : ${meta.investorName}` : "",
         amount: meta.amount ? Number(meta.amount) : null,
         type: "contribution",
+      }
+    // Settling an expense that was already recorded — cash leaving, so it reads
+    // as an outflow even though it is not new spending (dashboard_summary sums
+    // `expenses.total_amount`, never payments, so nothing is double counted).
+    // `metadata` here is the raw expense_payments row: the only human-readable
+    // field on it is `note`, and naming which expense is settled would need a
+    // join added to normalize_activity_metadata.
+    case "EXPENSE_PAYMENT_CREATE":
+      return {
+        actor,
+        actionText: "a enregistré un règlement",
+        subtitle: meta.note ? String(meta.note) : "",
+        amount: meta.amount ? Number(meta.amount) : null,
+        type: "expense",
+      }
+    // Lump-sum revenue, mostly student fees. The raw row carries `label`, so
+    // this one needs no server-side lookup.
+    case "OTHER_INCOME_CREATE":
+      return {
+        actor,
+        actionText: "a enregistré une recette",
+        subtitle: meta.label ? String(meta.label) : "",
+        amount: meta.amount ? Number(meta.amount) : null,
+        type: "income",
       }
     case "EXPENSE_CATEGORY_CREATE":
       return {
