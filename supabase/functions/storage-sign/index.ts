@@ -33,12 +33,28 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!
 const SERVICE_ROLE_KEY = Deno.env.get("LEGACY_SERVICE_ROLE_KEY")!
 
-const R2_ACCOUNT_ID = Deno.env.get("R2_ACCOUNT_ID")!
-const R2_BUCKET = Deno.env.get("R2_BUCKET")!
-const R2_ACCESS_KEY_ID = Deno.env.get("R2_ACCESS_KEY_ID")!
-const R2_SECRET_ACCESS_KEY = Deno.env.get("R2_SECRET_ACCESS_KEY")!
+// Read lazily, never at module scope. These come from Edge Function Secrets
+// (`supabase secrets set` / Dashboard > Edge Functions > Secrets) — NOT from
+// Supabase Vault, which is a database-level store that Deno.env cannot see.
+// Constructing the AwsClient at module scope meant one missing secret threw
+// during module load, so the function never booted and *every* request
+// including the CORS preflight returned an opaque 500 — which surfaces in the
+// browser as a bare "Failed to fetch" with nothing to go on.
+const R2_ENV_VARS = ["R2_ACCOUNT_ID", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] as const
 
-const R2_ENDPOINT = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+function readR2Config():
+  | { ok: true; accountId: string; bucket: string; accessKeyId: string; secretAccessKey: string }
+  | { ok: false; missing: string[] } {
+  const missing = R2_ENV_VARS.filter((name) => !Deno.env.get(name))
+  if (missing.length > 0) return { ok: false, missing }
+  return {
+    ok: true,
+    accountId: Deno.env.get("R2_ACCOUNT_ID")!,
+    bucket: Deno.env.get("R2_BUCKET")!,
+    accessKeyId: Deno.env.get("R2_ACCESS_KEY_ID")!,
+    secretAccessKey: Deno.env.get("R2_SECRET_ACCESS_KEY")!,
+  }
+}
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -80,13 +96,6 @@ const EXTENSIONS: Record<string, string> = {
 
 const PRESIGN_TTL_SECONDS = 300
 
-const r2 = new AwsClient({
-  accessKeyId: R2_ACCESS_KEY_ID,
-  secretAccessKey: R2_SECRET_ACCESS_KEY,
-  service: "s3",
-  region: "auto",
-})
-
 /** Folder each kind lives under — single source of truth, used both to build
  *  a fresh key and to validate a key handed back for deletion. */
 function folderFor(kind: UploadKind, callerId: string): string {
@@ -119,8 +128,34 @@ function authorize(kind: UploadKind, roles: Roles): string | null {
 }
 
 Deno.serve(async (req) => {
+  // Answered before any config check so a misconfigured deployment still
+  // completes the CORS preflight — the browser then surfaces the real JSON
+  // error below instead of an opaque "Failed to fetch".
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS })
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405)
+
+  const r2Config = readR2Config()
+  if (!r2Config.ok) {
+    // Names only, never values.
+    console.error("Missing R2 Edge Function secrets:", r2Config.missing.join(", "))
+    return json(
+      {
+        error:
+          `Stockage non configuré — variables manquantes: ${r2Config.missing.join(", ")}. ` +
+          `Définissez-les comme secrets de fonction (supabase secrets set), pas dans Vault.`,
+      },
+      500
+    )
+  }
+
+  const R2_ENDPOINT = `https://${r2Config.accountId}.r2.cloudflarestorage.com`
+  const R2_BUCKET = r2Config.bucket
+  const r2 = new AwsClient({
+    accessKeyId: r2Config.accessKeyId,
+    secretAccessKey: r2Config.secretAccessKey,
+    service: "s3",
+    region: "auto",
+  })
 
   const authHeader = req.headers.get("Authorization")
   if (!authHeader) return json({ error: "Missing Authorization header" }, 401)
