@@ -132,33 +132,20 @@ key is stored in Postgres; the public base URL is deployment config
 (`VITE_R2_PUBLIC_BASE_URL`). Replacing a file deletes the old object, but
 only *after* the row pointing at the new key has committed.
 
-## Known gaps / deliberately deferred
+## Deliberately absent by design
 
-- No students/teachers/classes tables yet — Dashboard's "420 élèves,
-  18 enseignants" etc. are hardcoded mock data in `App.tsx`, not real.
-- No receipt upload UI yet (schema has `expenses.receipt_key`; the R2
-  plumbing now exists — see above — but nothing calls it for receipts).
-- No `other_income` UI yet (table exists, for lump-sum revenue like
-  student fees — see refactor-plan.md's "why" on this one, it's load-bearing
-  for the dashboard not looking artificially broke).
-- Not deployed to Cloudflare Pages yet — still local dev only.
-- Leaked-password-protection is disabled in Supabase Auth (flagged by
-  advisors, not fixed — it's an account-security *setting*, needs the
-  user's go-ahead, not a code change).
-- **CAPTCHA protection is currently disabled** in Supabase Auth. Turnstile
-  replaced hCaptcha but is inert until `VITE_TURNSTILE_SITE_KEY` is set;
-  a real widget needs an FQDN, which the Pages domain provides for free at
-  deploy time. Open security item, not a settled decision.
-- **No router.** Navigation is one `useState<Tab>` in `App.tsx` with
-  cross-page state threaded through props. This blocks the planned
-  super-admin dashboard and should be fixed *before* building it.
-- **No server-state caching.** Every page mounts with `loading = true` and
-  empty data, so each reload replays the full skeleton sequence.
-- **The aggregate views are barely used.** `college_pool` and
-  `expense_standings` exist and are granted, but only `investor_standings`
-  is ever queried. `getTotalSpent()` / `getTotalContributed()` download whole
-  tables to sum client-side, and one Dashboard load makes ~10 round-trips,
-  fetching `expenses` 4x, `contributions` 3x, `investors` 3x.
+These are scope decisions, not oversights. Current status and near-term gaps
+live in `STATE.md`, not here.
+
+- Students, teachers and classes have no tables — that is Phase 7. The
+  Dashboard's "420 élèves, 18 enseignants" figures are hardcoded mock data in
+  `App.tsx`, and the Teachers/Students/Classes screens are placeholders.
+- `other_income` exists as a table with no UI on purpose. It holds lump-sum
+  revenue such as student fees, and it is load-bearing: without it the
+  dashboard understates the pool by roughly 17.6 M FCFA and the treasurer
+  stops trusting the app. See `docs/refactor-plan.md` for the full reasoning.
+- Expenses have no line-item table and no work-package table. Each ledger row
+  is one expense, and categories carry the grouping.
 
 ## Datatable convention (verified against ExpensesPage/UsersPage/InvestorsPage)
 
