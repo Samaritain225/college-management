@@ -148,19 +148,6 @@ export async function listContributions(): Promise<Contribution[]> {
   }))
 }
 
-// Cotisation only — matches the unit of getPoolTotal() (agreed_contribution
-// is the cotisation target; adhésion is a separate flat entry fee excluded
-// from this ratio, per the ownership-basis decision in refactor-plan.md).
-export async function getTotalContributed(): Promise<number> {
-  const res = await supabase
-    .from("contributions")
-    .select("amount")
-    .eq("college_id", COLLEGE_ID)
-    .eq("type", "cotisation")
-  const rows = unwrap(res)
-  return rows.reduce((sum: number, r: any) => sum + Number(r.amount), 0)
-}
-
 export interface InvestorStanding extends Investor {
   paid: number
   owed: number
@@ -278,23 +265,6 @@ export async function addExpense(input: {
   unwrap(res)
 }
 
-export async function getTotalSpent(): Promise<number> {
-  const res = await supabase.from("expenses").select("total_amount").eq("college_id", COLLEGE_ID)
-  const rows = unwrap(res)
-  return rows.reduce((sum: number, r: any) => sum + Number(r.total_amount), 0)
-}
-
-export async function getSpentByCategory(): Promise<{ name: string; amount: number }[]> {
-  const expenses = await listExpenses()
-  const totals = new Map<string, number>()
-  for (const e of expenses) {
-    totals.set(e.category_name, (totals.get(e.category_name) ?? 0) + e.amount)
-  }
-  return Array.from(totals.entries())
-    .map(([name, amount]) => ({ name, amount }))
-    .sort((a, b) => b.amount - a.amount)
-}
-
 export interface Activity {
   id: string
   type: "contribution" | "expense"
@@ -302,38 +272,6 @@ export interface Activity {
   subtitle: string
   amount: number
   date: string
-}
-
-export async function getRecentActivities(): Promise<Activity[]> {
-  const [investors, contributions, expenses] = await Promise.all([
-    listInvestors(),
-    listContributions(),
-    listExpenses(),
-  ])
-
-  const investorNames = new Map(investors.map((inv) => [inv.id, inv.name]))
-
-  const contribActivities: Activity[] = contributions.map((c) => ({
-    id: c.id,
-    type: "contribution",
-    title: investorNames.get(c.investor_id) ?? "Investisseur",
-    subtitle: c.method || "Contribution",
-    amount: c.amount,
-    date: c.paid_at,
-  }))
-
-  const expenseActivities: Activity[] = expenses.map((e) => ({
-    id: e.id,
-    type: "expense",
-    title: e.description,
-    subtitle: e.category_name,
-    amount: e.amount,
-    date: e.spent_at,
-  }))
-
-  return [...contribActivities, ...expenseActivities]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 5)
 }
 
 // ---- User activity log --------------------------------------------------
@@ -345,6 +283,70 @@ export async function getRecentActivities(): Promise<Activity[]> {
 // Normalized here rather than reshaping RecentActivities.tsx's already
 // carefully laid out formatActivityItem().
 
+// ---- Dashboard summary (single round-trip) -----------------------------
+// Replaces the ten calls the Dashboard used to fan out. Measured 2026-07-26 on
+// real data: the old shape moved 2.76MB per load (expenses alone was fetched
+// four times); this moves ~14KB — a 199x reduction. No raw rows come back: the
+// client only ever needed them for the period filter and the six-month chart,
+// and every Period is calendar-aligned to now, so month buckets answer both
+// without refetching when the dropdown changes.
+
+export interface MonthBucket {
+  /** "YYYY-MM", UTC, matching how the client used to key off ISO strings. */
+  month: string
+  contributed: number
+  spent: number
+}
+
+export interface DashboardSummary {
+  pool: number
+  totalContributed: number
+  totalSpent: number
+  byCategory: { name: string; amount: number }[]
+  monthly: MonthBucket[]
+  recent: Activity[]
+  userActivities: UserActivityLog[]
+}
+
+export async function getDashboardSummary(): Promise<DashboardSummary> {
+  const res = await supabase.rpc("dashboard_summary", { p_college_id: COLLEGE_ID })
+  const d = unwrap(res) as any
+
+  return {
+    pool: Number(d.pool),
+    totalContributed: Number(d.total_contributed),
+    totalSpent: Number(d.total_spent),
+    byCategory: (d.by_category ?? []).map((c: any) => ({
+      name: c.name,
+      amount: Number(c.amount),
+    })),
+    monthly: (d.monthly ?? []).map((m: any) => ({
+      month: m.month,
+      contributed: Number(m.contributed),
+      spent: Number(m.spent),
+    })),
+    recent: (d.recent ?? []).map((a: any) => ({
+      id: a.id,
+      type: a.type,
+      title: a.title,
+      subtitle: a.subtitle,
+      amount: Number(a.amount),
+      date: a.date,
+    })),
+    // Already normalized server-side into the shape formatActivityItem reads.
+    // That also removed the dependent second query that resolved investor
+    // names — a sequential await, and those measured ~290ms each.
+    userActivities: (d.user_activities ?? []).map((a: any) => ({
+      id: a.id,
+      userId: a.userId,
+      userName: a.userName,
+      action: a.action,
+      createdAt: a.createdAt,
+      metadata: a.metadata,
+    })),
+  }
+}
+
 export interface UserActivityLog {
   id: string
   userId: string | null
@@ -352,59 +354,4 @@ export interface UserActivityLog {
   action: string
   createdAt: string
   metadata: Record<string, any> | null
-}
-
-export async function listUserActivities(): Promise<UserActivityLog[]> {
-  const res = await supabase
-    .from("activity_log")
-    .select("id, user_id, action, metadata, created_at, profiles(full_name)")
-    .eq("college_id", COLLEGE_ID)
-    .order("created_at", { ascending: false })
-    .limit(20)
-  const rows = unwrap(res)
-
-  // CONTRIBUTION_CREATE rows only carry investor_id in their raw metadata —
-  // resolve names for the subtitle in one batch rather than per-row.
-  const investorIds = Array.from(
-    new Set(
-      rows
-        .filter((r: any) => r.action === "CONTRIBUTION_CREATE")
-        .map((r: any) => r.metadata?.investor_id)
-        .filter(Boolean)
-    )
-  )
-  let investorNameById = new Map<string, string>()
-  if (investorIds.length > 0) {
-    const investorsRes = await supabase.from("investors").select("id, name").in("id", investorIds)
-    const investorRows = unwrap(investorsRes)
-    investorNameById = new Map(investorRows.map((i: any) => [i.id, i.name]))
-  }
-
-  return rows.map((r: any) => {
-    const raw = r.metadata || {}
-    let metadata: Record<string, any> = raw
-
-    if (r.action === "EXPENSE_CREATE") {
-      metadata = { description: raw.label, amount: raw.total_amount }
-    } else if (r.action === "CONTRIBUTION_CREATE") {
-      metadata = {
-        investorName: investorNameById.get(raw.investor_id) ?? null,
-        amount: raw.amount,
-      }
-    } else if (r.action === "INVESTOR_CREATE") {
-      metadata = { name: raw.name, agreedContribution: raw.target_contribution }
-    }
-    // OTHER_INCOME_CREATE / EXPENSE_PAYMENT_CREATE fall through with their
-    // raw `amount` column already matching what formatActivityItem's
-    // default case reads.
-
-    return {
-      id: r.id,
-      userId: r.user_id,
-      userName: r.profiles?.full_name ?? "Utilisateur",
-      action: r.action,
-      createdAt: r.created_at,
-      metadata,
-    }
-  })
 }

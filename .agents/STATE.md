@@ -34,7 +34,13 @@ data), not a current one.
 3. **Make it measurable** — done. Real project seeded
    (`supabase/seed/dev-seed.sql`, fully reversible via `5eed…` id prefix);
    `scripts/bench.sh` is the repeatable baseline.
-4. **Perceived speed** — synchronous auth hydration, persisted cache.
+3b. **Dashboard aggregate RPC** — done, pulled forward once the seed proved it
+   was the largest cost. `dashboard_summary()` replaces ten calls with one:
+   **2.76 MB → 14 kB, a 199× reduction**, verified to return identical totals.
+   Also removed the dependent activity-name query and five now-dead client
+   functions that each downloaded whole tables.
+4. **Perceived speed** — synchronous auth hydration, persisted cache. Cheaper
+   to do now that the payload it caches is 14 kB rather than 2.76 MB.
 5. **Design system** — type and radius scales as tokens.
 6. **Dashboard redesign & architecture** — mock-vs-real separation, hero
    number, sparklines, aggregate RPC, router.
@@ -48,9 +54,11 @@ Live task list is the harness task tool (16 items, ids referenced above).
 - Leaked-password protection is off. Dashboard setting, waiting on Sam.
 - Delete-on-change for uploads has never run with a second upload, and avatar
   upload has never run at all. Same code path as the proven logo upload.
-- The dashboard now downloads **2.76 MB per load** on real seeded data, 2.63 MB
-  of it because `expenses` is fetched four times. Measured, not projected. This
-  is now the largest single cost in the app and should be pulled forward.
+- **The dashboard reports a false negative balance.** It computes
+  `contributed - spent` and never reads `other_income`, so it shows
+  −102,578,756 F CFA when the true position is +79,671,244 (`college_pool` =
+  232,207,144 against 152,535,900 spent). The negative is also rendered green,
+  captioned "Fonds disponibles". Found the moment real data existed.
 
 ## Decided, not yet built
 

@@ -6,19 +6,11 @@ import { BudgetBar, type CategorySpend } from "./BudgetBar"
 import { RecentActivities } from "./RecentActivities"
 import { formatMoney } from "@/lib/utils"
 import { useAuth } from "@/lib/auth"
-import { isDateInPeriod, type Period } from "@/lib/period"
+import { isMonthInPeriod, type Period } from "@/lib/period"
 import {
-  getPoolTotal,
-  getTotalContributed,
-  getTotalSpent,
-  getSpentByCategory,
-  getRecentActivities,
-  listUserActivities,
-  listExpenses,
-  listContributions,
+  getDashboardSummary,
   type Activity,
-  type Contribution,
-  type Expense,
+  type MonthBucket,
   type UserActivityLog,
 } from "@/lib/queries"
 import { Sun, Moon, Venus, Mars, Wallet, Coins, Scale, CreditCard } from "lucide-react"
@@ -38,8 +30,7 @@ interface DashboardCacheData {
   byCategory: CategorySpend[]
   activities: Activity[]
   userActivities: UserActivityLog[]
-  allContribs: Contribution[]
-  allExps: Expense[]
+  monthly: MonthBucket[]
 }
 
 let dashboardCache: DashboardCacheData | null = null
@@ -65,8 +56,7 @@ export function Dashboard({
   const [loadError, setLoadError] = useState(false)
   const [retryTick, setRetryTick] = useState(0)
 
-  const [allContribs, setAllContribs] = useState<Contribution[]>(dashboardCache?.allContribs ?? [])
-  const [allExps, setAllExps] = useState<Expense[]>(dashboardCache?.allExps ?? [])
+  const [monthly, setMonthly] = useState<MonthBucket[]>(dashboardCache?.monthly ?? [])
 
   const [randomGreeting, setRandomGreeting] = useState("")
 
@@ -102,37 +92,29 @@ export function Dashboard({
     async function load() {
       try {
         setLoadError(false)
-        const [p, c, s, cats, acts, userActs, contribs, exps] = await Promise.all([
-          getPoolTotal(),
-          getTotalContributed(),
-          getTotalSpent(),
-          getSpentByCategory(),
-          getRecentActivities(),
-          listUserActivities(),
-          listContributions(),
-          listExpenses(),
-        ])
-        const mappedCats = cats.map((cat, i) => ({ ...cat, color: PALETTE[i % PALETTE.length] }))
+        const summary = await getDashboardSummary()
+        const mappedCats = summary.byCategory.map((cat, i) => ({
+          ...cat,
+          color: PALETTE[i % PALETTE.length],
+        }))
 
         dashboardCache = {
-          pool: p,
-          baseContributed: c,
-          baseSpent: s,
+          pool: summary.pool,
+          baseContributed: summary.totalContributed,
+          baseSpent: summary.totalSpent,
           byCategory: mappedCats,
-          activities: acts,
-          userActivities: userActs,
-          allContribs: contribs,
-          allExps: exps,
+          activities: summary.recent,
+          userActivities: summary.userActivities,
+          monthly: summary.monthly,
         }
 
-        setPool(p)
-        setBaseContributed(c)
-        setBaseSpent(s)
+        setPool(summary.pool)
+        setBaseContributed(summary.totalContributed)
+        setBaseSpent(summary.totalSpent)
         setByCategory(mappedCats)
-        setActivities(acts)
-        setUserActivities(userActs)
-        setAllContribs(contribs)
-        setAllExps(exps)
+        setActivities(summary.recent)
+        setUserActivities(summary.userActivities)
+        setMonthly(summary.monthly)
       } catch (err) {
         console.error("Dashboard failed to load database stats:", err)
         if (!dashboardCache) {
@@ -145,15 +127,18 @@ export function Dashboard({
     load()
   }, [refreshKey, dbReady, retryTick])
 
-  // Compute period-filtered stats
-  const filteredContribs = allContribs.filter((c) => isDateInPeriod(c.paid_at, period))
-  const filteredExps = allExps.filter((e) => isDateInPeriod(e.spent_at, period))
+  // Period-filtered stats, now summed from month buckets instead of from every
+  // row in the table. Same arithmetic, ~200x less data to get here.
+  const bucketsInPeriod = monthly.filter((m) => isMonthInPeriod(m.month, period))
 
-  const contributed = period === "all" ? baseContributed : filteredContribs.reduce((sum, c) => sum + c.amount, 0)
-  const spent = period === "all" ? baseSpent : filteredExps.reduce((sum, e) => sum + e.amount, 0)
+  const contributed =
+    period === "all" ? baseContributed : bucketsInPeriod.reduce((sum, m) => sum + m.contributed, 0)
+  const spent = period === "all" ? baseSpent : bucketsInPeriod.reduce((sum, m) => sum + m.spent, 0)
   const remaining = contributed - spent
 
-  // Recompute chart timeline based on filtered datasets
+  // Recompute chart timeline. Cumulative within the selected period, matching
+  // the previous behaviour — the old code accumulated over the *filtered* rows,
+  // so filtering the buckets first preserves it.
   useEffect(() => {
     const now = new Date()
     const dataPoints = Array.from({ length: 6 }).map((_, i) => {
@@ -165,21 +150,17 @@ export function Dashboard({
       }
     })
 
+    const inPeriod = monthly.filter((m) => isMonthInPeriod(m.month, period))
     const computed = dataPoints.map((dp) => {
-      const totalC = filteredContribs
-        .filter((contrib) => contrib.paid_at.substring(0, 7) <= dp.monthKey)
-        .reduce((sum, contrib) => sum + contrib.amount, 0)
-      const totalS = filteredExps
-        .filter((exp) => exp.spent_at.substring(0, 7) <= dp.monthKey)
-        .reduce((sum, exp) => sum + exp.amount, 0)
+      const upTo = inPeriod.filter((m) => m.month <= dp.monthKey)
       return {
         month: dp.label.charAt(0).toUpperCase() + dp.label.slice(1).replace(".", ""),
-        contributed: totalC,
-        spent: totalS,
+        contributed: upTo.reduce((sum, m) => sum + m.contributed, 0),
+        spent: upTo.reduce((sum, m) => sum + m.spent, 0),
       }
     })
     setChartData(computed)
-  }, [period, allContribs, allExps])
+  }, [period, monthly])
 
   if (!dbReady || loading) {
     return (

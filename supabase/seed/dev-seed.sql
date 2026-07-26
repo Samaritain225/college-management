@@ -96,7 +96,10 @@ select ('5eed0004-0000-4000-8000-' || lpad((100 + p.n*100 + g)::text,12,'0'))::u
        (array['Virement bancaire','Espèces','Mobile Money','Chèque'])[1 + (p.n + g) % 4],
        null, :admin
 from plan p, lateral generate_series(0, p.k - 1) g
-where p.joined_at + (g * interval '47 days') < now()
+-- Guard the *paid_at* expression, not just the instalment offset. Checking
+-- only `joined_at + g*47d` let the extra 20 days push the last instalment past
+-- now(), which produced future-dated payments in the activity feed.
+where p.joined_at + (g * interval '47 days') + interval '20 days' < now()
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
