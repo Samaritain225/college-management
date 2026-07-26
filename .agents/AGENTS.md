@@ -103,13 +103,41 @@ multi-tenant UI yet — see "Known gaps" below.
   `super_admin`** (whose row has `college_id IS NULL`). Every query
   against `user_roles` that's meant to include admins must filter
   `college_id.eq.X,college_id.is.null`, not just `.eq()`.
+- **Supabase Vault ≠ Edge Function Secrets.** Vault (`vault.secrets`, set
+  from the dashboard's Vault page) is a *database* store read via SQL.
+  `Deno.env.get()` inside an Edge Function reads a completely different
+  store — Edge Function Secrets (`supabase secrets set`, or Dashboard >
+  Edge Functions > Secrets). Putting the R2 credentials in Vault made every
+  `Deno.env.get()` return `undefined`; because the R2 client was built at
+  module scope, that threw during module load, so the function never booted
+  and *every* request — including the CORS preflight — returned a bare 500.
+  In the browser that surfaces only as "Failed to fetch". Two lessons:
+  never construct clients from env at module scope in an Edge Function, and
+  reach for `get_logs` (service `edge-function`) first — it showed
+  `OPTIONS | 500` immediately.
+- **Presigned R2 uploads need bucket CORS.** The browser PUTs directly to
+  R2, and it sends `Content-Type: image/jpeg`, which is *not* a
+  CORS-safelisted value — so it triggers a preflight. The bucket's CORS
+  policy must allow `PUT` and the `Content-Type` header from the app origin
+  (scheme + host + port must match exactly).
+
+## File uploads (Cloudflare R2)
+
+`supabase/functions/storage-sign/` mints 5-minute presigned PUT URLs and
+performs authorized deletes; `src/lib/uploads.ts` is the client half.
+Object keys are **server-derived, never client-supplied** — a client-chosen
+key would let any caller overwrite any object. Layout: `logos/<uuid>.<ext>`,
+`avatars/<user-id>/<uuid>.<ext>`, `receipts/<year>/<uuid>.<ext>`. Only the
+key is stored in Postgres; the public base URL is deployment config
+(`VITE_R2_PUBLIC_BASE_URL`). Replacing a file deletes the old object, but
+only *after* the row pointing at the new key has committed.
 
 ## Known gaps / deliberately deferred
 
 - No students/teachers/classes tables yet — Dashboard's "420 élèves,
   18 enseignants" etc. are hardcoded mock data in `App.tsx`, not real.
-- No receipt upload UI yet (schema has `expenses.receipt_key` for R2,
-  unused).
+- No receipt upload UI yet (schema has `expenses.receipt_key`; the R2
+  plumbing now exists — see above — but nothing calls it for receipts).
 - No `other_income` UI yet (table exists, for lump-sum revenue like
   student fees — see refactor-plan.md's "why" on this one, it's load-bearing
   for the dashboard not looking artificially broke).
@@ -117,6 +145,20 @@ multi-tenant UI yet — see "Known gaps" below.
 - Leaked-password-protection is disabled in Supabase Auth (flagged by
   advisors, not fixed — it's an account-security *setting*, needs the
   user's go-ahead, not a code change).
+- **CAPTCHA protection is currently disabled** in Supabase Auth. Turnstile
+  replaced hCaptcha but is inert until `VITE_TURNSTILE_SITE_KEY` is set;
+  a real widget needs an FQDN, which the Pages domain provides for free at
+  deploy time. Open security item, not a settled decision.
+- **No router.** Navigation is one `useState<Tab>` in `App.tsx` with
+  cross-page state threaded through props. This blocks the planned
+  super-admin dashboard and should be fixed *before* building it.
+- **No server-state caching.** Every page mounts with `loading = true` and
+  empty data, so each reload replays the full skeleton sequence.
+- **The aggregate views are barely used.** `college_pool` and
+  `expense_standings` exist and are granted, but only `investor_standings`
+  is ever queried. `getTotalSpent()` / `getTotalContributed()` download whole
+  tables to sum client-side, and one Dashboard load makes ~10 round-trips,
+  fetching `expenses` 4x, `contributions` 3x, `investors` 3x.
 
 ## Datatable convention (verified against ExpensesPage/UsersPage/InvestorsPage)
 
