@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "college-management",
+  "name": "wagnon",
   "compatibility_date": "2026-07-25",
   "observability": {
     "enabled": true
