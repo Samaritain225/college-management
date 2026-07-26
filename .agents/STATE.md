@@ -1,51 +1,61 @@
 # Current State — Wagnon Budget
 
-Last updated 2026-07-26.
+Last updated 2026-07-26. Cap: 60 lines. See the compression protocol in
+`AGENTS.md` before adding to this file.
 
 ## Recently landed
 
-- File uploads to Cloudflare R2 work end to end for the college logo and for
-  profile avatars, verified by a real upload that stored the object key in
-  Postgres and served the image publicly.
-- The Settings screen was split into three sections (Collège, Mon compte, À
-  propos), and college identity is now editable only by admin and super_admin.
-- All of this is merged into `main`. The `refactor/supabase-migration` branch is
-  not ahead of `main`, so nothing is waiting in a pull request.
+- R2 uploads work end to end for the college logo and profile avatars.
+- Settings split into three sections; college identity is admin-only.
+- Batch 1 of the audit backlog: money no longer wraps mid-currency, the
+  hardcoded admin email is gone from the login form, a theme bootstrap script
+  in `index.html` kills the dark-mode flash, and the three light-mode semantic
+  colours now pass WCAG AA.
+
+## Two audits, both measured, both written down
+
+- `docs/perf-audit-2026-07-26.md` — network, payload and bundle.
+- `docs/ui-audit-2026-07-26.md` — contrast, type, images, layout.
+
+The headline correction from the perf audit: **reducing parallel round-trips is
+nearly worthless** — 10 multiplexed requests measure the same wall-clock as 3
+(~260 ms), because `Promise.all` over one HTTP/2 connection already overlaps
+them. A *sequential* step costs 5–10× more than an extra parallel one. The
+round-trip work is a scaling fix (2.9 MB per dashboard load at two years of
+data), not a current one.
+
+## Ordered batches
+
+1. **Free wins** — done, except this file's own rewrite.
+2. **Payload & first paint** — self-host fonts (~1.5 s blocking), rework the
+   login artwork (591 KB fetched on mobile and never rendered), drop Realtime.
+3. **Make it measurable** — seed the real project, commit the bench script.
+   Sam approved seeding the real project rather than a branch.
+4. **Perceived speed** — synchronous auth hydration, persisted cache.
+5. **Design system** — type and radius scales as tokens.
+6. **Dashboard redesign & architecture** — mock-vs-real separation, hero
+   number, sparklines, aggregate RPC, router.
+
+Live task list is the harness task tool (16 items, ids referenced above).
 
 ## Blocking and open risks
 
-- CAPTCHA protection is switched off in Supabase Auth right now, which means the
-  login endpoint has no bot protection at all. It was turned off to unblock
-  login after Turnstile was made inert on the client. Re-enable it once the app
-  is deployed to Cloudflare Pages, because Turnstile needs a real domain and the
-  Pages domain provides one at no cost.
-- Leaked-password protection is also disabled in Supabase Auth. The advisors
-  flag it; it is a dashboard setting rather than a code change, so it is waiting
-  on Sam's decision.
-- The delete-on-change behaviour for uploads has never been exercised with a
-  second upload, and avatar upload has never been run at all. Both share the
-  code path that the logo upload proved, but neither is verified.
+- CAPTCHA is off in Supabase Auth — the login endpoint has no bot protection.
+  Re-enable once deployed to Pages, which supplies the domain Turnstile needs.
+- Leaked-password protection is off. Dashboard setting, waiting on Sam.
+- Delete-on-change for uploads has never run with a second upload, and avatar
+  upload has never run at all. Same code path as the proven logo upload.
+- The database is effectively empty (0 investors, 0 contributions, 1 expense),
+  so no performance claim can be verified until batch 3 lands.
 
-## Next two to four items
+## Decided, not yet built
 
-1. Query the `college_pool` and `expense_standings` views instead of
-   downloading whole tables to sum them in JavaScript, and remove the duplicate
-   fetches in `src/lib/queries.ts`. One Dashboard load currently makes about ten
-   Supabase round trips and fetches `expenses` four times.
-2. Initialise auth state synchronously from the cached user so returning users
-   stop seeing the session spinner. The cache already exists but is read after
-   first paint, which defeats it.
-3. Add TanStack Query so pages render cached data immediately instead of
-   replaying skeletons on every reload.
-4. Add a router. Do this before any work starts on the super-admin dashboard,
-   not after.
-
-## Decided but not yet built
-
-- Stay on Vite and React. A framework change was considered and rejected:
-  every screen is behind auth, so nothing can be pre-rendered, and server
-  rendering would add a round trip before first paint on the weak connections
-  this app targets.
-- The super-admin dashboard needs no new framework or schema work. The tables
-  already carry `college_id`, super_admin rows are global, and RLS already
-  scopes by college, so it is a routing and query problem.
+- Stay on Vite and React. Every screen is behind auth so nothing pre-renders,
+  and SSR would add a round trip before first paint on the connections this app
+  targets.
+- The super-admin dashboard needs no new framework or schema work — tables
+  already carry `college_id`, RLS already scopes by college. It is a routing
+  and query problem, and the router must land first.
+- Login keeps the split layout on desktop; mobile gets the artwork as a
+  full-bleed background with the form on top, served as one right-sized image
+  per viewport rather than suppressed.

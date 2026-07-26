@@ -175,6 +175,41 @@ recursive-policy trap, a silently-wrong pool-total calc, and the
 `super_admin` exclusion bug above). Always run `get_advisors` (security +
 performance) after any schema change regardless.
 
+## Context compression protocol
+
+Chat context is the most expensive and least durable place to keep a fact.
+Facts travel in one direction only, and get shorter at every step:
+
+```
+chat  →  docs/<topic>-audit-<date>.md  →  STATE.md  →  AGENTS.md (this file)
+        (full evidence, written once)    (≤60 lines)   (only what outlives
+                                          what is true   the current work)
+                                          right now)
+```
+
+**Rules, all of them cheap to follow:**
+
+1. **Never duplicate across tiers.** If a fact is in `STATE.md`, this file
+   should not restate it — it should be *replaced* by it when it stops being
+   temporary. A fact in two files will drift.
+2. **Deep investigations get one dated file in `docs/`**, written once, with
+   the raw numbers. `STATE.md` then carries a single line pointing at it, not
+   a summary of it. This is what keeps `STATE.md` short while keeping the
+   evidence.
+3. **One fact per line. Absolute dates.** No "we discussed", no "as mentioned",
+   no narrative of how the conclusion was reached — only the conclusion and, if
+   it is surprising, the one number that forces it.
+4. **Delete superseded lines, do not annotate them.** "Formerly X, now Y" is
+   two facts where one is wrong. Git already holds the history.
+5. **Compact at batch boundaries**, not continuously — when a batch of work
+   closes, fold what survived into the right tier and delete the rest.
+6. **Never record what git, the code, or `CLAUDE.md` already says.** Schema
+   shape, file structure and past fixes are all recoverable; judgement calls
+   and measured surprises are not.
+
+The test for whether a line belongs here at all: *would a competent agent make
+the wrong call without it?* If it would merely be nice to know, drop it.
+
 ## Pointers
 
 - `docs/refactor-plan.md` — full architecture decision record

@@ -26,7 +26,7 @@ export function LoginPage() {
   const { collegeName, collegeLogo } = useSettings()
   const { login } = useAuth()
 
-  const [email, setEmail] = useState("admin@college.ci")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)

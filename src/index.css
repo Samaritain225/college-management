@@ -8,16 +8,24 @@
   --color-ink: #0f172a;
   --color-ink-soft: #475569;
 
-  --color-positive: #16a34a;
+  /* Light-mode semantic colours are one step darker than the obvious
+     Tailwind-600 picks. At 600 they measured 3.30:1 (positive) and 4.41:1
+     (negative on its own tint) — below the 4.5:1 AA floor, and every use of
+     them in this app is text-xs, which is exactly the size that needs it.
+     Measured now: positive 5.02:1 on paper / 4.79:1 on positive-bg,
+     negative 6.47:1 / 5.91:1. Dark mode already passed and is untouched. */
+  --color-positive: #15803d;
   --color-positive-bg: #f0fdf4;
-  --color-negative: #dc2626;
+  --color-negative: #b91c1c;
   --color-negative-bg: #fef2f2;
 
   --color-teal-950: #042f2e;
   --color-teal-900: #134e4a;
   --color-teal-100: #ccfbf1;
 
-  --color-terracotta-600: #ea580c;
+  /* Same story: #ea580c measured 3.56:1 on paper and 3.11:1 on its own tint.
+     #c2410c gives 5.18:1 / 4.52:1 and still reads as the warm accent. */
+  --color-terracotta-600: #c2410c;
   --color-terracotta-100: #ffedd5;
 
   /* Sidebar — must use the --color- prefix (not a plain custom property)

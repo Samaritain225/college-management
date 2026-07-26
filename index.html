@@ -12,6 +12,24 @@
       rel="stylesheet"
     />
     <title>Wagnon Budget</title>
+    <script>
+      // Set the theme class before first paint. ThemeProvider reads the same
+      // localStorage key, but it applies the class in an effect — which runs
+      // after the first paint, so without this every dark-mode user saw a
+      // flash of the light theme on load. Keep the key and the fallback in
+      // sync with src/lib/theme.tsx.
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          if (t !== "light" && t !== "dark") {
+            t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          if (t === "dark") document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* storage blocked (private browsing) — light default is fine */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
