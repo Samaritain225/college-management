@@ -92,11 +92,91 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-screen bg-paper font-sans">
-      {/* Left Column: Form Panel */}
-      <div className="flex w-full flex-col justify-center px-6 py-12 md:w-1/2 lg:px-16 xl:px-24 bg-paper">
+    <div className="relative flex min-h-screen w-screen bg-paper font-sans">
+      {/* Artwork layer.
+          One <picture>, two jobs: full-bleed background on mobile, right-hand
+          panel from md up. Previously this lived only in the desktop column as
+          `hidden md:flex` — but display:none does not stop the fetch, so phones
+          downloaded 591KB of artwork they never rendered. Now the media
+          attributes mean exactly one right-sized file is fetched per viewport
+          (mobile ~24KB, desktop ~37KB), and mobile actually shows it. */}
+      <div className="pointer-events-none absolute inset-0 z-0 select-none md:left-1/2 md:p-4 lg:p-6">
+        <div className="relative h-full w-full overflow-hidden md:rounded-2xl md:border md:border-white/10 md:shadow-lg">
+          <picture>
+            <source media="(min-width: 768px)" type="image/avif" srcSet="/login-artwork-desktop.avif" />
+            <source media="(min-width: 768px)" type="image/webp" srcSet="/login-artwork-desktop.webp" />
+            <source type="image/avif" srcSet="/login-artwork-mobile.avif" />
+            <source type="image/webp" srcSet="/login-artwork-mobile.webp" />
+            <img
+              src="/login-artwork-desktop.webp"
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          </picture>
+          {/* Scrim. Heavier on mobile, where the form sits directly on top of
+              the image rather than beside it. */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/65 to-black/50 md:from-black/80 md:via-black/30 md:to-black/20" />
+
+          {/* Fading quotes container */}
+          <div className="absolute bottom-6 left-5 right-5 z-10 max-w-2xl md:bottom-8 md:left-8 md:right-8">
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+              <defs>
+                <linearGradient id="ants-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" className="gradient-stop-1" />
+                  <stop offset="50%" className="gradient-stop-2" />
+                  <stop offset="100%" className="gradient-stop-3" />
+                </linearGradient>
+              </defs>
+              <rect
+                x="0"
+                y="0"
+                width="100%"
+                height="100%"
+                rx="16"
+                fill="none"
+                stroke="url(#ants-gradient)"
+                strokeWidth="2"
+                className="marching-ants-border opacity-70"
+              />
+            </svg>
+
+            <div className="relative flex flex-col items-start bg-black/45 backdrop-blur-md rounded-2xl p-4 md:p-6 transition-all duration-500 ease-in-out w-full">
+              <p
+                className={`text-sm md:text-xl font-medium text-white/95 leading-relaxed transition-all duration-500 transform ${
+                  fadeState === "in"
+                    ? "opacity-100 translate-x-0 blur-none"
+                    : "opacity-0 -translate-x-4 blur-xs"
+                }`}
+              >
+                " {quotes[quoteIndex].text} "
+              </p>
+
+              <div className="flex items-center gap-2.5 mt-3 pt-3 md:mt-4 border-t border-white/5 w-full text-white/90">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-paper/15 text-white shadow-xs">
+                  <Pencil className="size-3" />
+                </div>
+                <span
+                  className={`text-xs md:text-sm font-semibold tracking-wide transition-all duration-500 transform ${
+                    fadeState === "in"
+                      ? "opacity-100 translate-y-0"
+                      : "opacity-0 translate-y-2"
+                  }`}
+                >
+                  {quotes[quoteIndex].author}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Form column. Transparent on mobile so the artwork reads through;
+          solid paper from md up, where it owns the left half. The extra bottom
+          padding keeps the centred card clear of the quote on phones. */}
+      <div className="relative z-10 flex w-full flex-col justify-center px-6 pt-12 pb-56 md:w-1/2 md:bg-paper md:py-12 lg:px-16 xl:px-24">
         <div className="mx-auto w-full max-w-sm space-y-8">
-          {/* Logo / Header */}
+          {/* Logo / Header — light type on mobile, where it sits over the
+              scrimmed artwork rather than on paper. */}
           <div className="flex flex-col items-center text-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-teal-950 text-white font-display font-semibold text-lg overflow-hidden shadow-xs">
               {collegeLogo ? (
@@ -106,17 +186,17 @@ export function LoginPage() {
               )}
             </div>
             <div>
-              <h2 className="text-xl font-display font-bold tracking-tight text-ink">
+              <h2 className="text-xl font-display font-bold tracking-tight text-white md:text-ink">
                 Connexion · {collegeName}
               </h2>
-              <p className="text-xs text-ink-soft mt-1">
+              <p className="text-xs text-white/75 mt-1 md:text-ink-soft">
                 Accédez à votre espace de gestion budgétaire
               </p>
             </div>
           </div>
 
           {/* Login Card */}
-          <Card className="border border-ink/10 bg-paper shadow-xs">
+          <Card className="border border-ink/10 bg-paper/95 backdrop-blur-md shadow-lg md:bg-paper md:shadow-xs">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-display font-semibold flex items-center gap-2 text-ink">
                 <Lock className="size-4 text-ink-soft" />
@@ -187,71 +267,6 @@ export function LoginPage() {
               </form>
             </CardContent>
           </Card>
-        </div>
-      </div>
-
-      {/* Right Column: Visual Artwork (hidden on small devices) */}
-      <div className="hidden w-1/2 md:flex items-center justify-center p-4 lg:p-6 select-none bg-paper">
-        <div className="relative w-full h-full overflow-hidden rounded-2xl border border-border/40 shadow-lg">
-          {/* Full screen image layout */}
-          <img
-            src="/login-artwork.png"
-            alt="College Budget"
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-          {/* Dark overlay for readability */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
-
-          {/* Fading quotes container */}
-          <div className="absolute bottom-8 left-8 right-8 z-10 max-w-2xl">
-            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
-              <defs>
-                <linearGradient id="ants-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" className="gradient-stop-1" />
-                  <stop offset="50%" className="gradient-stop-2" />
-                  <stop offset="100%" className="gradient-stop-3" />
-                </linearGradient>
-              </defs>
-              <rect
-                x="0"
-                y="0"
-                width="100%"
-                height="100%"
-                rx="16"
-                fill="none"
-                stroke="url(#ants-gradient)"
-                strokeWidth="2"
-                className="marching-ants-border opacity-70"
-              />
-            </svg>
-
-            <div className="relative flex flex-col items-start bg-black/45 backdrop-blur-md rounded-2xl p-6 transition-all duration-500 ease-in-out w-full">
-              <p
-                className={`text-lg md:text-xl font-medium text-white/95 leading-relaxed transition-all duration-500 transform ${
-                  fadeState === "in"
-                    ? "opacity-100 translate-x-0 blur-none"
-                    : "opacity-0 -translate-x-4 blur-xs"
-                }`}
-              >
-                " {quotes[quoteIndex].text} "
-              </p>
-
-              <div className="flex items-center gap-2.5 mt-4 pt-3 border-t border-white/5 w-full text-white/90">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-paper/15 text-white shadow-xs">
-                  <Pencil className="size-3" />
-                </div>
-                <span
-                  className={`text-xs md:text-sm font-semibold tracking-wide transition-all duration-500 transform ${
-                    fadeState === "in"
-                      ? "opacity-100 translate-y-0"
-                      : "opacity-0 translate-y-2"
-                  }`}
-                >
-                  {quotes[quoteIndex].author}
-                </span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

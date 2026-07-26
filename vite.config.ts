@@ -17,6 +17,15 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // SupabaseClient eagerly constructs a RealtimeClient and a StorageClient
+      // even though this app uses neither — no supabase.channel() call exists,
+      // and files go to Cloudflare R2 rather than Supabase Storage. Left alone,
+      // realtime-js + its phoenix dependency + storage-js ship to every user on
+      // connections where that actually costs seconds. These stubs keep the
+      // exact bindings supabase-js imports and throw loudly if ever called.
+      // See src/lib/supabase-stubs/ for how to undo this.
+      '@supabase/realtime-js': path.resolve(__dirname, './src/lib/supabase-stubs/realtime.ts'),
+      '@supabase/storage-js': path.resolve(__dirname, './src/lib/supabase-stubs/storage.ts'),
     },
   },
 })
