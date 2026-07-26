@@ -83,6 +83,39 @@ Deno.serve(async (req) => {
   const targetCollegeId = adminCollegeId ?? colleges?.[0]?.id
   if (!targetCollegeId) return json({ error: "No college configured" }, 500)
 
+  // ---- Audit trail -----------------------------------------------------
+  // User lifecycle is the one thing activity_log cannot capture with a
+  // trigger. The finance tables all log via log_activity() on INSERT, but
+  // these actions happen in auth.users — deactivation is a banned_until
+  // change in a schema triggers here cannot watch, and a role change is a
+  // DELETE plus an INSERT on user_roles, which would log as two events that
+  // describe neither. Only this function knows the intent, so it writes the
+  // row itself, as service_role.
+  //
+  // Never let auditing fail the operation: the account has already been
+  // created or banned by the time we get here, and returning an error would
+  // tell the caller a thing that did happen did not.
+  // Parameter is `logAction`, not `action`: there is already an `action` in
+  // this scope holding the URL segment, and shadowing it here would read as
+  // though the two were the same thing.
+  async function logAdminAction(logAction: string, metadata: Record<string, unknown>) {
+    const { error } = await admin.from("activity_log").insert({
+      college_id: targetCollegeId,
+      user_id: caller!.id,
+      action: logAction,
+      metadata,
+    })
+    // Swallowed on purpose (see above) — which means a missing service_role
+    // INSERT grant would show up only here, never in the UI.
+    if (error) console.error(`activity_log insert failed for ${logAction}:`, error.message)
+  }
+
+  /** Read the target's display name so the entry names a person, not a uuid. */
+  async function targetName(id: string): Promise<string | null> {
+    const { data } = await admin.from("profiles").select("full_name").eq("id", id).maybeSingle()
+    return data?.full_name ?? null
+  }
+
   const url = new URL(req.url)
   const segments = url.pathname.split("/").filter(Boolean)
   // .../functions/v1/admin-users[/:id[/:action]]
@@ -168,6 +201,8 @@ Deno.serve(async (req) => {
         college_id: roleId === "super_admin" ? null : targetCollegeId,
       })
 
+      await logAdminAction("USER_CREATE", { name, email, role_id: roleId })
+
       return json({ data: { user: { id: newUserId } } }, 201)
     }
 
@@ -210,6 +245,14 @@ Deno.serve(async (req) => {
         })
       }
 
+      // `name` is only present when the caller changed it — fall back to the
+      // stored one so the entry always names someone, even for a phone- or
+      // role-only edit.
+      await logAdminAction("USER_UPDATE", {
+        name: name ?? (await targetName(targetId)),
+        ...(roleId ? { role_id: roleId } : {}),
+      })
+
       return json({ data: { ok: true } })
     }
 
@@ -219,6 +262,11 @@ Deno.serve(async (req) => {
         ban_duration: action === "deactivate" ? "876000h" : "none",
       })
       if (banErr) return json({ error: banErr.message }, 400)
+
+      await logAdminAction(action === "deactivate" ? "USER_DEACTIVATE" : "USER_REACTIVATE", {
+        name: await targetName(targetId),
+      })
+
       return json({ data: { ok: true } })
     }
 

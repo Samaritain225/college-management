@@ -89,6 +89,17 @@ Live task list is the harness task tool (16 items, ids referenced above).
 
 ## Blocking and open risks
 
+- **The `admin-users` audit logging is written but never deployed or run.**
+  The Supabase MCP connection dropped mid-session and neither the Supabase CLI
+  nor Deno is installed locally, so the function could not be typechecked,
+  deployed or exercised. Deploy it, create a test user, and confirm a
+  `USER_CREATE` row lands. Confirm specifically that service_role holds INSERT
+  on `activity_log` — the code swallows that error by design, so a missing
+  grant leaves the trail silently empty.
+- Category creation is still unaudited: `expense_categories` has no
+  `log_activity()` trigger, so `EXPENSE_CATEGORY_CREATE` is handled in the UI
+  but never emitted. One trigger fixes it; needs a migration.
+
 - CAPTCHA is off in Supabase Auth — the login endpoint has no bot protection.
   Re-enable once deployed to Pages, which supplies the domain Turnstile needs.
 - Leaked-password protection is off. Dashboard setting, waiting on Sam.

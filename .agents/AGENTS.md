@@ -116,6 +116,16 @@ multi-tenant UI yet — see "Known gaps" below.
   both arms of a search OR as predicates on the *same* table — an
   `or joined_table.col ilike …` forces a join filter and makes the trigram index
   unusable at any size.
+- **`activity_log` has exactly one non-trigger writer: the `admin-users` edge
+  function, as service_role.** Everything else is written by `log_activity()`
+  on INSERT, and the client must never write it directly — that part of the
+  rule stands. User lifecycle is the exception because it happens in
+  `auth.users`: deactivation is a `banned_until` change in a schema no trigger
+  here can watch, and a role change is a DELETE plus an INSERT on `user_roles`
+  that would log as two events describing neither. Only the function knows the
+  intent. Its inserts deliberately swallow errors so auditing can never fail an
+  account operation, which also means a missing service_role INSERT grant would
+  surface only in the edge-function logs, never in the UI.
 - **`formatMoney` mixes two kinds of space, and the difference is load-bearing.**
   Non-breaking inside the number and inside "F CFA"; an ordinary breakable space
   between them. Make that last one non-breaking and the whole string becomes
