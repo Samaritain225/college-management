@@ -931,7 +931,7 @@ export function ExpensesPage({
             </div>
 
             {fieldErrors.general && (
-              <p className="text-xs text-negative font-medium bg-negative-bg p-2 rounded border border-negative/20">
+              <p className="text-xs text-negative font-medium bg-negative-bg p-2 rounded-sm border border-negative/20">
                 {fieldErrors.general}
               </p>
             )}
@@ -1003,7 +1003,7 @@ export function ExpensesPage({
             </div>
 
             {catError && (
-              <p className="text-xs text-negative font-medium bg-negative-bg p-2 rounded border border-negative/20">
+              <p className="text-xs text-negative font-medium bg-negative-bg p-2 rounded-sm border border-negative/20">
                 {catError}
               </p>
             )}
@@ -1099,7 +1099,7 @@ export function ExpensesPage({
                     <p className="text-xs font-medium text-ink-soft">
                       Aucun fichier joint à cette dépense
                     </p>
-                    <p className="text-[11px] text-ink-soft/70 mt-0.5">
+                    <p className="text-2xs text-ink-soft/70 mt-0.5">
                       Formats acceptés : PDF, PNG, JPG
                     </p>
                   </div>

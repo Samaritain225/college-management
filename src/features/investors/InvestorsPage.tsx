@@ -367,22 +367,22 @@ export function InvestorsPage({
           <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
             <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Capital Convenu</p>
             <h3 className="text-lg font-display font-bold text-ink mt-1">{formatMoney(selectedInvestor.agreed_contribution)}</h3>
-            <p className="text-[11px] text-ink-soft mt-1">Montant promis</p>
+            <p className="text-2xs text-ink-soft mt-1">Montant promis</p>
           </Card>
           <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
             <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Total Libéré</p>
             <h3 className="text-lg font-display font-bold text-positive mt-1">{formatMoney(selectedInvestor.paid)}</h3>
-            <p className="text-[11px] text-positive font-semibold mt-1">Contributions reçues</p>
+            <p className="text-2xs text-positive font-semibold mt-1">Contributions reçues</p>
           </Card>
           <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
             <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Reste à Libérer</p>
             <h3 className="text-lg font-display font-bold text-negative mt-1">{formatMoney(selectedInvestor.owed)}</h3>
-            <p className="text-[11px] text-terracotta-600 font-semibold mt-1">Solde dû</p>
+            <p className="text-2xs text-terracotta-600 font-semibold mt-1">Solde dû</p>
           </Card>
           <Card className="border border-ink/10 bg-paper p-5 flex flex-col justify-between">
             <p className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Part du Capital</p>
             <h3 className="text-lg font-display font-bold text-ink mt-1 font-mono">{selectedInvestor.ownership_pct.toFixed(1)}%</h3>
-            <p className="text-[11px] text-ink-soft mt-1">Part de l'enveloppe</p>
+            <p className="text-2xs text-ink-soft mt-1">Part de l'enveloppe</p>
           </Card>
         </div>
 
@@ -405,7 +405,7 @@ export function InvestorsPage({
               </div>
               <div className="flex justify-between py-1">
                 <span className="text-ink-soft">Identifiant système</span>
-                <span className="font-mono text-[11px] text-ink-soft">{selectedInvestor.id}</span>
+                <span className="font-mono text-2xs text-ink-soft">{selectedInvestor.id}</span>
               </div>
             </div>
           </Card>

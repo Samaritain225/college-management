@@ -22,8 +22,8 @@ export function PageFallback() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 animate-pulse space-y-6">
       <div className="space-y-2">
-        <div className="h-8 w-48 bg-ink/10 rounded" />
-        <div className="h-4 w-64 bg-ink/10 rounded" />
+        <div className="h-8 w-48 bg-ink/10 rounded-sm" />
+        <div className="h-4 w-64 bg-ink/10 rounded-sm" />
       </div>
       <div className="h-64 bg-ink/10 rounded-xl" />
     </div>

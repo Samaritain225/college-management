@@ -98,6 +98,14 @@ multi-tenant UI yet — see "Known gaps" below.
   `grant_service_role_full_access` migration. Skipping this produces
   "permission denied for table X", not empty results, which is a useful
   tell.
+- **The type and radius scales are pinned in `@theme`, not inherited.** They
+  are restated at Tailwind 4.3's own values on purpose, so a framework upgrade
+  cannot silently resize 250 `text-xs` labels or reshape every card. If you
+  change a `--text-*`, change its `--text-*--line-height` sibling in the same
+  edit — setting one without the other reflows every screen at once.
+  `--text-2xs` (11px) and `--text-3xs` (10px) are ours; Tailwind has no name
+  below 12px and this app needs two. `--radius-lg` is `var(--radius)`, so the
+  app's corner is one number.
 - **Tailwind v4 needs the `--color-` prefix inside `@theme` to generate a
   utility at all.** A plain `:root { --sidebar: ... }` custom property
   does *not* make `bg-sidebar` work — the class is silently a no-op. This

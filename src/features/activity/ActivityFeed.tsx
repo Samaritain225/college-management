@@ -42,7 +42,7 @@ export function ActivityRow({ act }: { act: UserActivityLog }) {
           </span>
           {formatted.amount !== null && (
             <div className={cn("shrink-0 rounded-md px-2 py-0.5", amountBg)}>
-              <span className={cn("text-[11px] font-bold font-mono tabular-nums", amountColor)}>
+              <span className={cn("text-2xs font-bold font-mono tabular-nums", amountColor)}>
                 {isInflow ? "+" : isExpense ? "−" : ""}
                 {formatMoney(formatted.amount)}
               </span>
@@ -51,11 +51,11 @@ export function ActivityRow({ act }: { act: UserActivityLog }) {
         </div>
         <p className="text-xs font-normal text-ink-soft leading-tight">{formatted.actionText}</p>
         {formatted.subtitle && (
-          <p className="text-[11px] text-ink-soft/70 leading-tight font-normal truncate">
+          <p className="text-2xs text-ink-soft/70 leading-tight font-normal truncate">
             {formatted.subtitle}
           </p>
         )}
-        <p className="text-[10px] text-ink-soft/50 leading-none font-normal pt-0.5">
+        <p className="text-3xs text-ink-soft/50 leading-none font-normal pt-0.5">
           {relativeTime(act.createdAt)}
         </p>
       </div>
@@ -192,11 +192,11 @@ export function ActivityFeed({
 
       {error && (
         <div className="flex flex-col items-center gap-2 py-3">
-          <p className="text-[11px] text-ink-soft">Impossible de charger la suite.</p>
+          <p className="text-2xs text-ink-soft">Impossible de charger la suite.</p>
           <button
             type="button"
             onClick={() => void loadMore()}
-            className="text-[11px] font-display font-semibold text-teal-950 hover:underline"
+            className="text-2xs font-display font-semibold text-teal-950 hover:underline"
           >
             Réessayer
           </button>
@@ -204,7 +204,7 @@ export function ActivityFeed({
       )}
 
       {done && items.length > 0 && (
-        <p className="text-center text-[10px] text-ink-soft/60 py-3">Fin de l'historique</p>
+        <p className="text-center text-3xs text-ink-soft/60 py-3">Fin de l'historique</p>
       )}
     </div>
   )

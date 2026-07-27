@@ -179,8 +179,8 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-8 animate-pulse space-y-8">
         <div className="space-y-2">
-          <div className="h-8 w-48 bg-ink/10 rounded" />
-          <div className="h-4 w-64 bg-ink/10 rounded" />
+          <div className="h-8 w-48 bg-ink/10 rounded-sm" />
+          <div className="h-4 w-64 bg-ink/10 rounded-sm" />
         </div>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
           <div className="h-28 bg-ink/10 rounded-xl" />
@@ -319,7 +319,7 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
               <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-terracotta-600)" strokeWidth="4" strokeDasharray="84.95 78.41" strokeDashoffset="0" />
               <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-teal-950)" strokeWidth="4" strokeDasharray="78.41 84.95" strokeDashoffset="-84.95" />
               <text x="32" y="32" textAnchor="middle" className="fill-ink font-display font-bold text-xs" transform="rotate(90 32 32)">420</text>
-              <text x="32" y="42" textAnchor="middle" className="fill-ink-soft font-sans text-[9px]" transform="rotate(90 32 32)">Élèves</text>
+              <text x="32" y="42" textAnchor="middle" className="fill-ink-soft font-sans text-3xs" transform="rotate(90 32 32)">Élèves</text>
             </svg>
           </div>
 
@@ -347,7 +347,7 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
               <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-teal-950)" strokeWidth="4" strokeDasharray="89.85 73.51" strokeDashoffset="0" />
               <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-terracotta-600)" strokeWidth="4" strokeDasharray="73.51 89.85" strokeDashoffset="-89.85" />
               <text x="32" y="32" textAnchor="middle" className="fill-ink font-display font-bold text-xs" transform="rotate(90 32 32)">18</text>
-              <text x="32" y="42" textAnchor="middle" className="fill-ink-soft font-sans text-[9px]" transform="rotate(90 32 32)">Actifs</text>
+              <text x="32" y="42" textAnchor="middle" className="fill-ink-soft font-sans text-3xs" transform="rotate(90 32 32)">Actifs</text>
             </svg>
           </div>
 

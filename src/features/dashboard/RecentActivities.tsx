@@ -63,7 +63,7 @@ export function RecentActivities({
                       <div className={cn("shrink-0 rounded-md px-2 py-0.5", amountBg)}>
                         <span
                           className={cn(
-                            "text-[11px] font-bold font-mono tabular-nums",
+                            "text-2xs font-bold font-mono tabular-nums",
                             amountColor
                           )}
                         >
@@ -73,12 +73,12 @@ export function RecentActivities({
                       </div>
                     </div>
                     {act.subtitle && (
-                      <p className="text-[11px] text-ink-soft/70 leading-tight font-normal truncate">
+                      <p className="text-2xs text-ink-soft/70 leading-tight font-normal truncate">
                         {act.subtitle}
                       </p>
                     )}
                     {act.date && (
-                      <p className="text-[10px] text-ink-soft/50 leading-none font-normal pt-0.5">
+                      <p className="text-3xs text-ink-soft/50 leading-none font-normal pt-0.5">
                         {relativeTime(act.date)}
                       </p>
                     )}

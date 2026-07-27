@@ -50,12 +50,19 @@ step costs 5–10× more than an extra parallel one.
    dashboard painted complete and correct at **FCP 208 ms** while the identity
    and summary requests did not return until **5.8 s** — content 5.6 s ahead of
    the network. Caches live in sessionStorage, cleared on logout.
-5. **Design system — next, and the last batch.** Type and radius scales as
-   tokens.
+5. Design system — done. Type and radius scales pinned in `@theme` at the
+   values already rendering, verified as a byte-for-byte no-op by diffing the
+   emitted CSS variables. Added `text-2xs`/`text-3xs` (11px/10px) and removed
+   every arbitrary size and radius from app code; the dead `--radius` in
+   `:root` is live now as the base for `--radius-lg`.
 6. Dashboard redesign & architecture — done. The router landed last; the
    super-admin dashboard is now unblocked and is a routing/query problem only.
 
 ## Blocking and open risks
+
+- Two `text-[0.8rem]` remain in `components/ui/calendar.tsx`, left alone
+  deliberately: it is vendored shadcn, and 0.8rem sits between `xs` and `sm`,
+  so folding it would change the date picker's appearance rather than codify it.
 
 - The router cost **+28.5 kB gzipped** on the entry chunk (85.4 → 113.9), more
   than the ~20 kB estimated when choosing it. Most of that is the data-router

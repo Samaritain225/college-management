@@ -158,10 +158,10 @@ export function BudgetDonut({ totalPool, spentByCategory }: BudgetDonutProps) {
        </div>
 
         <div className="text-center max-w-[12rem]">
-          <p className="text-[11px] font-display font-semibold uppercase tracking-wider text-ink-soft truncate">
+          <p className="text-2xs font-display font-semibold uppercase tracking-wider text-ink-soft truncate">
             {active ? active.name : "Dépensé"}
           </p>
-          <p className="text-[11px] text-ink-soft tabular-nums">
+          <p className="text-2xs text-ink-soft tabular-nums">
             {Math.round(pct(active ? active.amount : totalSpent) * 100)}% des ressources
           </p>
         </div>
