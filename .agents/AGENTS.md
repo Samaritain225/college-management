@@ -129,6 +129,18 @@ multi-tenant UI yet — see "Known gaps" below.
   declarative `<BrowserRouter>`/`<Routes>` to shed the data-router bundle means
   replacing that with a path-to-label map first — the breadcrumb will silently
   render nothing otherwise, since `handle` is simply absent.
+- **`supabase migration fetch` rewrites every local file, not just the missing
+  ones.** It reformats what it touches — `$function$` collapsed to `$$`, stray
+  trailing semicolons, and comments replaced by whatever text the history table
+  stored. Run it to recover a genuinely absent file, then revert everything else
+  it touched; the committed files are the reviewed artifact and the history
+  table is not.
+- **Check the version `apply_migration` actually assigned before naming the
+  file.** Re-applying a migration (delete the `schema_migrations` row, apply
+  again) mints a *new* version, so a file named from the previous attempt
+  silently becomes local-only. This has now caused drift twice, once from an
+  agent that had just written the rule down. `supabase migration list` shows it
+  immediately — anything with an empty `local` or `remote` is drift.
 - **`activity_log` has exactly one non-trigger writer: the `admin-users` edge
   function, as service_role.** Everything else is written by `log_activity()`
   on INSERT, and the client must never write it directly — that part of the

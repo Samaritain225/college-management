@@ -1,6 +1,6 @@
 # Current State — Wagnon Budget
 
-Last updated 2026-07-26. Cap: 100 lines. See the compression protocol in
+Last updated 2026-07-27. Cap: 100 lines. See the compression protocol in
 `AGENTS.md` before adding to this file.
 
 ## Recently landed
@@ -14,18 +14,17 @@ Last updated 2026-07-26. Cap: 100 lines. See the compression protocol in
   `other_income`. The four stat cards now reconcile on screen and colour by sign.
 - "Répartition du budget" is a doughnut. Card 2 is "Encaissements", not
   "Revenus": that would count investor capital as money the college earned.
-- Every data table pages at ten rows. Expenses pages server-side via
-  `expenses_page()` (656 kB → 4.5 kB, KPIs and category totals included, search
-  debounced 300 ms); the small tables page in memory via `usePagedRows`.
+- Every data table pages at ten rows; expenses pages server-side via
+  `expenses_page()` (656 kB → 4.5 kB), the small tables in memory.
 - The activity log paginates via `activity_feed()` on a keyset cursor, and
   non-admins now read only their own rows — so a non-admin's "Activités
   récentes" shows only their own actions.
 - **The app has real URLs** (react-router v7, English paths). Detail views are
-  routes, so `/investors/:id` and `/users/:id` are linkable and survive a
-  reload. That deleted the whole tab apparatus — `Tab`, `tabOrder`,
-  `KNOWN_TABS`, the sessionStorage tab memory — and the `onBreadcrumbChange` +
-  `backTrigger` channel, which existed only because detail views were state.
-  `App.tsx` is 497 lines down to 27.
+  routes, so `/investors/:id` is linkable and survives a reload. That deleted
+  the tab apparatus and the `onBreadcrumbChange`/`backTrigger` channel;
+  `App.tsx` went from 497 lines to 27.
+- Migration history is aligned for the first time: 14 migrations, nothing
+  local-only or remote-only.
 
 ## Audits — both measured, both written down
 
@@ -37,26 +36,15 @@ multiplexed requests measure the same wall-clock as 3 (~260 ms), because
 `Promise.all` over one HTTP/2 connection already overlaps them. A *sequential*
 step costs 5–10× more than an extra parallel one.
 
-## Ordered batches
+## Batches — all seven done
 
-1. Free wins — done.
-2. Payload & first paint — done. Fonts self-hosted, login artwork 591 KB →
-   24 KB mobile / 37 KB desktop, Realtime + Storage out of the bundle (−27%).
-3. Make it measurable — done. `supabase/seed/dev-seed.sql` (reversible via the
-   `5eed…` id prefix); `scripts/bench.sh` is the repeatable baseline.
-3b. Dashboard aggregate RPC — done. 2.76 MB → 14 kB, a 199× reduction.
-4. Perceived speed — done and measured. Auth hydrates from storage during the
-   first render instead of awaiting `getSession()`. On a warm reload the
-   dashboard painted complete and correct at **FCP 208 ms** while the identity
-   and summary requests did not return until **5.8 s** — content 5.6 s ahead of
-   the network. Caches live in sessionStorage, cleared on logout.
-5. Design system — done. Type and radius scales pinned in `@theme` at the
-   values already rendering, verified as a byte-for-byte no-op by diffing the
-   emitted CSS variables. Added `text-2xs`/`text-3xs` (11px/10px) and removed
-   every arbitrary size and radius from app code; the dead `--radius` in
-   `:root` is live now as the base for `--radius-lg`.
-6. Dashboard redesign & architecture — done. The router landed last; the
-   super-admin dashboard is now unblocked and is a routing/query problem only.
+The audit backlog is closed. Order was not the plan's: 6 jumped ahead of 5
+because the router blocked the super-admin dashboard, and 3b was pulled forward
+once the seed proved the dashboard payload was the single largest cost.
+
+Two results worth keeping: `dashboard_summary()` took the dashboard from
+2.76 MB to 14 kB, and a warm reload now paints at FCP 208 ms while the network
+does not answer for 5.8 s. Everything else is in git.
 
 ## Blocking and open risks
 
@@ -103,3 +91,8 @@ step costs 5–10× more than an extra parallel one.
   a routing and query problem now.
 - Login keeps the split layout on desktop; mobile gets the artwork as a
   full-bleed background with the form on top, one right-sized image per viewport.
+- An agent will not hold app credentials. Verifying a flow that needs a login is
+  split: Sam performs the write, the agent reads the result back. If unattended
+  verification is ever wanted, the sanctioned shape is a seeded account on a
+  non-production project with the password injected from the environment at run
+  time — never in the repo, never in agent memory.
