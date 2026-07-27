@@ -60,6 +60,12 @@ step costs 5–10× more than an extra parallel one.
 
 ## Blocking and open risks
 
+- Supabase work goes through the **CLI**, not the MCP server — the remote MCP
+  endpoint (`mcp.supabase.com`, OAuth) has been down and `ToolSearch` finds no
+  supabase tool. `supabase` 2.109 is installed, logged in and linked. Docker is
+  not running, so `db dump`, `db diff` and `db reset` all fail; `migration
+  list`, `db push`, `migration fetch` and `functions deploy` work fine.
+
 - Two `text-[0.8rem]` remain in `components/ui/calendar.tsx`, left alone
   deliberately: it is vendored shadcn, and 0.8rem sits between `xs` and `sm`,
   so folding it would change the date picker's appearance rather than codify it.
@@ -73,19 +79,15 @@ step costs 5–10× more than an extra parallel one.
 - The non-admin redirect off `/users` and `/investors` is unexercised: the
   project has exactly one user, a super_admin. The logic is `RequireRole` with a
   `<Navigate to="/" replace />` fallback, confirmed by reading only.
-- **The `admin-users` audit logging is written but never deployed or run.** The
-  Supabase MCP connection dropped and neither the Supabase CLI nor Deno is
-  installed locally. Deploy it, create a test user, confirm a `USER_CREATE` row
-  lands, and confirm service_role holds INSERT on `activity_log` — the code
-  swallows that error by design, so a missing grant leaves the trail empty.
-- Category creation is unaudited: `expense_categories` has no `log_activity()`
-  trigger, so `EXPENSE_CATEGORY_CREATE` is handled in the UI but never emitted.
+- Both audit gaps are closed in the database but neither has been *watched*
+  fire: `admin-users` is deployed (ACTIVE v8, verify_jwt on) and the category
+  trigger is applied. Someone should create a user and a category and confirm
+  the two rows appear in the feed. The grant that could have failed silently is
+  confirmed present — `20260725015335` grants insert on every public table to
+  service_role.
 - Under a period filter "Solde Restant" is a *flow*, not a balance — July 2026
   alone nets −2,782,643, so it reads red and "Découvert" on a solvent college.
   Needs a period-aware label or exemption from the filter.
-- `supabase/migrations/` has drifted from the applied history: no local file for
-  `20260725015335_grant_service_role_full_access`, and the branding migration is
-  `20260725143000` locally against `20260725133215` in the database.
 - CAPTCHA is off in Supabase Auth — no bot protection on login. Re-enable once
   deployed to Pages, which supplies the domain Turnstile needs.
 - Leaked-password protection is off. Dashboard setting, waiting on Sam.
