@@ -136,8 +136,6 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
   // row in the table. Same arithmetic, ~200x less data to get here.
   const bucketsInPeriod = monthly.filter((m) => isMonthInPeriod(m.month, period))
 
-  const contributed =
-    period === "all" ? baseContributed : bucketsInPeriod.reduce((sum, m) => sum + m.contributed, 0)
   const spent = period === "all" ? baseSpent : bucketsInPeriod.reduce((sum, m) => sum + m.spent, 0)
   // Every cash inflow, not just cotisation. The balance used to be
   // `contributed - spent`, which ignored other income entirely and so reported
@@ -146,8 +144,18 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
     period === "all" ? baseResources : bucketsInPeriod.reduce((sum, m) => sum + m.resources, 0)
   const otherIncome =
     period === "all" ? baseOtherIncome : bucketsInPeriod.reduce((sum, m) => sum + m.otherIncome, 0)
-  const remaining = resources - spent
-  const isSolvent = remaining >= 0
+  // A balance is a position at a moment; a period turns the same subtraction
+  // into a *flow*. Under "ce mois-ci" this is July's inflows minus July's
+  // outflows — −2,782,643 on a college holding +79,321,244 — so labelling it
+  // "Solde Restant / Découvert" told the treasurer the account was overdrawn
+  // when it was nothing of the sort. Same number, different question, so the
+  // card says which question it is answering.
+  const isPeriodFiltered = period !== "all"
+  const netFlow = resources - spent
+  // The true position, never period-scoped: what is actually in the pot today.
+  const balance = baseResources - baseSpent
+  const headlineValue = isPeriodFiltered ? netFlow : balance
+  const isPositive = headlineValue >= 0
 
   // Recompute chart timeline. Cumulative within the selected period, matching
   // the previous behaviour — the old code accumulated over the *filtered* rows,
@@ -257,8 +265,13 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
           icon={Wallet}
           iconClassName="bg-teal-100/60 text-teal-950"
           footer={
+            // Always the all-time ratio. `pool` is a standing commitment, not a
+            // flow, so pairing it with a period's contributions compared two
+            // different spans and read "0% libéré" in any month nobody happened
+            // to pay in.
             <span className="text-teal-950">
-              {pool > 0 ? Math.round((contributed / pool) * 100) : 0}% libéré par les investisseurs
+              {pool > 0 ? Math.round((baseContributed / pool) * 100) : 0}% libéré par les
+              investisseurs
             </span>
           }
         />
@@ -279,27 +292,61 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
           icon={CreditCard}
           iconClassName="bg-terracotta-100 text-terracotta-600"
           footer={
+            // Under a period both halves are flows, and a month that spent more
+            // than it took in gave "912% des ressources" — arithmetically true
+            // and useless. Filtered, the honest and bounded question is how much
+            // of all spending happened in this window.
             <span className="text-terracotta-600">
-              {resources > 0 ? Math.round((spent / resources) * 100) : 0}% des ressources
+              {isPeriodFiltered
+                ? `${baseSpent > 0 ? Math.round((spent / baseSpent) * 100) : 0}% des dépenses totales`
+                : `${resources > 0 ? Math.round((spent / resources) * 100) : 0}% des ressources`}
             </span>
           }
         />
+        {/* Red is reserved for a genuinely overdrawn account. A negative *flow*
+            is an ordinary month where more went out than came in, so it reads
+            terracotta like every other outflow on this screen — same colour
+            language as "Fonds Dépensé". */}
         <StatCard
-          label="Solde Restant"
-          value={formatMoney(remaining)}
-          valueClassName={isSolvent ? "text-positive" : "text-negative"}
+          label={isPeriodFiltered ? "Flux net" : "Solde Restant"}
+          value={formatMoney(headlineValue)}
+          valueClassName={
+            isPositive ? "text-positive" : isPeriodFiltered ? "text-terracotta-600" : "text-negative"
+          }
           icon={Scale}
-          iconClassName={isSolvent ? "bg-positive-bg text-positive" : "bg-negative-bg text-negative"}
+          iconClassName={
+            isPositive
+              ? "bg-positive-bg text-positive"
+              : isPeriodFiltered
+                ? "bg-terracotta-100 text-terracotta-600"
+                : "bg-negative-bg text-negative"
+          }
           footer={
             <span
-              className={`flex items-center gap-1.5 ${isSolvent ? "text-positive" : "text-negative"}`}
+              className={`flex items-center gap-1.5 ${
+                isPositive
+                  ? "text-positive"
+                  : isPeriodFiltered
+                    ? "text-terracotta-600"
+                    : "text-negative"
+              }`}
             >
               <span
                 className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                  isSolvent ? "bg-positive animate-pulse" : "bg-negative"
+                  isPositive
+                    ? "bg-positive animate-pulse"
+                    : isPeriodFiltered
+                      ? "bg-terracotta-600"
+                      : "bg-negative"
                 }`}
               />
-              {isSolvent ? "Fonds disponibles" : "Découvert"}
+              {isPeriodFiltered
+                ? isPositive
+                  ? "Entrées > sorties sur la période"
+                  : "Sorties > entrées sur la période"
+                : isPositive
+                  ? "Fonds disponibles"
+                  : "Découvert"}
             </span>
           }
         />

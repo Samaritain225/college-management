@@ -19,6 +19,9 @@ Last updated 2026-07-27. Cap: 100 lines. See the compression protocol in
 - The activity log paginates via `activity_feed()` on a keyset cursor, and
   non-admins now read only their own rows — so a non-admin's "Activités
   récentes" shows only their own actions.
+- The audit trail is verified end to end: creating a user and creating a
+  category both land in the feed with the right copy. `admin-users` is deployed
+  (ACTIVE v8) and `expense_categories` has its trigger.
 - **The app has real URLs** (react-router v7, English paths). Detail views are
   routes, so `/investors/:id` is linkable and survives a reload. That deleted
   the tab apparatus and the `onBreadcrumbChange`/`backTrigger` channel;
@@ -64,18 +67,9 @@ does not answer for 5.8 s. Everything else is in git.
   actions. Declarative `<BrowserRouter>` + `<Routes>` would drop it, at the cost
   of replacing the `useMatches()`/`handle` breadcrumb with a path→label map.
   Worth deciding before the next payload pass.
-- The non-admin redirect off `/users` and `/investors` is unexercised: the
-  project has exactly one user, a super_admin. The logic is `RequireRole` with a
-  `<Navigate to="/" replace />` fallback, confirmed by reading only.
-- Both audit gaps are closed in the database but neither has been *watched*
-  fire: `admin-users` is deployed (ACTIVE v8, verify_jwt on) and the category
-  trigger is applied. Someone should create a user and a category and confirm
-  the two rows appear in the feed. The grant that could have failed silently is
-  confirmed present — `20260725015335` grants insert on every public table to
-  service_role.
-- Under a period filter "Solde Restant" is a *flow*, not a balance — July 2026
-  alone nets −2,782,643, so it reads red and "Découvert" on a solvent college.
-  Needs a period-aware label or exemption from the filter.
+- The non-admin redirect off `/users` and `/investors` is still unexercised.
+  There are two accounts now, but the test user was given `admin`, so nothing
+  in the project holds a non-admin role. Needs an `investor`-role account.
 - CAPTCHA is off in Supabase Auth — no bot protection on login. Re-enable once
   deployed to Pages, which supplies the domain Turnstile needs.
 - Leaked-password protection is off. Dashboard setting, waiting on Sam.
