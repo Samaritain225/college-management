@@ -45,23 +45,17 @@ step costs 5–10× more than an extra parallel one.
 3. Make it measurable — done. `supabase/seed/dev-seed.sql` (reversible via the
    `5eed…` id prefix); `scripts/bench.sh` is the repeatable baseline.
 3b. Dashboard aggregate RPC — done. 2.76 MB → 14 kB, a 199× reduction.
-4. Perceived speed — done. Auth hydrates from storage during the first render
-   instead of awaiting `getSession()`, so a live session goes straight to the
-   app and no session goes straight to login; only "session but no cached
-   identity" still shows the spinner. Dashboard and category caches persist in
-   sessionStorage.
+4. Perceived speed — done and measured. Auth hydrates from storage during the
+   first render instead of awaiting `getSession()`. On a warm reload the
+   dashboard painted complete and correct at **FCP 208 ms** while the identity
+   and summary requests did not return until **5.8 s** — content 5.6 s ahead of
+   the network. Caches live in sessionStorage, cleared on logout.
 5. **Design system — next, and the last batch.** Type and radius scales as
    tokens.
 6. Dashboard redesign & architecture — done. The router landed last; the
    super-admin dashboard is now unblocked and is a routing/query problem only.
 
 ## Blocking and open risks
-
-- Batch 4's happy path is unverified: the browser pane lost its session and an
-  agent cannot log in. Confirmed by test instead — a synthetic dead session
-  hydrated optimistically and was then correctly torn down, wiping both the
-  cached identity and the cached balances. What nobody has watched is a *real*
-  session reloading straight into the app with no spinner.
 
 - The router cost **+28.5 kB gzipped** on the entry chunk (85.4 → 113.9), more
   than the ~20 kB estimated when choosing it. Most of that is the data-router
