@@ -24,6 +24,7 @@ import {
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { supabase } from "@/lib/supabase"
 import { LoginPage } from "@/features/auth/LoginPage"
+import { clearAllCaches } from "@/lib/persistentCache"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,6 +96,43 @@ async function fetchAuthUser(supabaseUser: SupabaseUser): Promise<AuthUser> {
 
 const USER_CACHE_KEY = "college-budget:auth-user"
 
+/**
+ * Is there a session in storage that the client could still use?
+ *
+ * Read synchronously so the first paint can be the app shell instead of a
+ * spinner. `supabase.auth.getSession()` answers the same question but returns a
+ * promise, which cost every single load — including reloads with a perfectly
+ * good session sitting in localStorage — a full render of the "Chargement de la
+ * session…" screen before anything else could happen.
+ *
+ * Deliberately permissive about the access token being expired: a refresh token
+ * means the client can renew, and `autoRefreshToken` will. Being strict here
+ * would reintroduce the spinner for anyone returning after an hour.
+ */
+function hasStoredSession(): boolean {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      // supabase-js owns this key's shape; matched by pattern rather than
+      // rebuilt from the URL so a project-ref change cannot silently break it.
+      if (!/^sb-.+-auth-token$/.test(key)) continue
+
+      let raw = localStorage.getItem(key)
+      if (!raw) continue
+      // Newer supabase-js versions base64-wrap the stored session.
+      if (raw.startsWith("base64-")) raw = atob(raw.slice("base64-".length))
+
+      const parsed = JSON.parse(raw)
+      const session = parsed?.currentSession ?? parsed
+      if (session?.refresh_token) return true
+      if (typeof session?.expires_at === "number") return session.expires_at * 1000 > Date.now()
+    }
+  } catch {
+    // Unreadable or an unexpected shape — fall through and let the async path
+    // decide. Being wrong here costs a spinner, never a wrong answer.
+  }
+  return false
+}
+
 function readCachedUser(): AuthUser | null {
   try {
     const val = localStorage.getItem(USER_CACHE_KEY)
@@ -121,8 +159,22 @@ function writeCachedUser(user: AuthUser | null): void {
 // ---------------------------------------------------------------------------
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null)
-  const [status, setStatus] = useState<AuthStatus>("checking")
+  // Hydrate from storage during the first render, so the common cases never
+  // paint the session spinner at all:
+  //   session + cached identity → straight to the app, revalidated in the
+  //     background (provisional: a session that turns out to be dead flips to
+  //     the login screen a moment later, which is strictly better than making
+  //     every good session wait for the bad one's sake)
+  //   no session at all         → straight to the login screen
+  //   session, no cached identity → "checking", because we genuinely do not
+  //     know who this is until the profile/roles fetch returns
+  const [user, setUser] = useState<AuthUser | null>(() =>
+    hasStoredSession() ? readCachedUser() : null
+  )
+  const [status, setStatus] = useState<AuthStatus>(() => {
+    if (!hasStoredSession()) return "unauthenticated"
+    return readCachedUser() ? "authenticated" : "checking"
+  })
   const [error, setError] = useState<string | null>(null)
 
   // Guards against setting state after unmount, and against a stale
@@ -143,6 +195,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } = await supabase.auth.getSession()
 
       if (!session) {
+        // We may have optimistically rendered the shell from cache above.
+        // Storage said there was a session and there is not, so undo it.
+        writeCachedUser(null)
+        clearAllCaches()
+        setUser(null)
         setStatus("unauthenticated")
         return
       }
@@ -179,6 +236,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         writeCachedUser(null)
+        clearAllCaches()
         setUser(null)
         setStatus("unauthenticated")
       }
@@ -202,6 +260,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const authUser = await fetchAuthUser(data.user)
+    // Whoever was here before, their cached figures are not this user's.
+    clearAllCaches()
     writeCachedUser(authUser)
     setUser(authUser)
     setStatus("authenticated")
@@ -211,6 +271,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await supabase.auth.signOut()
     writeCachedUser(null)
+    // The cached screens hold the college's balances — they must not outlive
+    // the session that was allowed to see them.
+    clearAllCaches()
     setUser(null)
     setStatus("unauthenticated")
   }, [])

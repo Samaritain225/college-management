@@ -53,6 +53,7 @@ import { TablePager } from "@/components/TablePager"
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination"
 import { usePagedRows } from "@/lib/usePagedRows"
 import { useDebounced } from "@/lib/useDebounced"
+import { readCache, writeCache } from "@/lib/persistentCache"
 import { useNavigate } from "react-router-dom"
 import { cn, formatMoney } from "@/lib/utils"
 import { format, startOfToday } from "date-fns"
@@ -86,7 +87,9 @@ type TabMode = "expenses" | "categories"
 
 // Categories only. Expenses are a server-paged slice now, so caching "the
 // expenses" would cache whichever page happened to be open last.
-let categoriesCache: BudgetCategory[] | null = null
+const CATEGORIES_CACHE_KEY = "expense-categories"
+let categoriesCache: BudgetCategory[] | null =
+  readCache<BudgetCategory[]>(CATEGORIES_CACHE_KEY)
 
 export function ExpensesPage({
   onChange,
@@ -211,6 +214,7 @@ export function ExpensesPage({
     try {
       const cats = await listCategories()
       categoriesCache = cats
+      writeCache(CATEGORIES_CACHE_KEY, cats)
       setCategories(cats)
       if (!categoryId && cats[0]) setCategoryId(cats[0].id)
     } catch (e) {

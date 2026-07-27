@@ -14,6 +14,7 @@ import {
   type UserActivityLog,
 } from "@/lib/queries"
 import { Sun, Moon, Venus, Mars, Wallet, Coins, Scale, CreditCard } from "lucide-react"
+import { readCache, writeCache } from "@/lib/persistentCache"
 
 interface ChartDataPoint {
   month: string
@@ -33,7 +34,12 @@ interface DashboardCacheData {
   monthly: MonthBucket[]
 }
 
-let dashboardCache: DashboardCacheData | null = null
+const CACHE_KEY = "dashboard"
+
+// Seeded from sessionStorage so a reload repaints the last figures instantly
+// instead of showing the skeleton again. Still only a placeholder — the fetch
+// below runs on every mount regardless and overwrites this.
+let dashboardCache: DashboardCacheData | null = readCache<DashboardCacheData>(CACHE_KEY)
 
 // `dbReady` outlived the local libSQL bootstrap it used to gate (Phase 0) and
 // is always true; it stays as an optional prop so the loading gate below reads
@@ -103,6 +109,7 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
           userActivities: summary.userActivities,
           monthly: summary.monthly,
         }
+        writeCache(CACHE_KEY, dashboardCache)
 
         setPool(summary.pool)
         setBaseContributed(summary.totalContributed)
