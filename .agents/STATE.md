@@ -28,6 +28,12 @@ Last updated 2026-07-27. Cap: 100 lines. See the compression protocol in
   `App.tsx` went from 497 lines to 27.
 - Migration history is aligned for the first time: 14 migrations, nothing
   local-only or remote-only.
+- The period filter no longer turns balances into nonsense. Three stat figures
+  divided a period flow by an all-time total; the worst read "Solde Restant /
+  Découvert" in red on a solvent college. Filtered, that card is now "Flux net".
+- The shell has one horizontal datum (y=48) and one left rail (x=28); sidebar
+  is 12.5rem. The arithmetic behind both is in AGENTS.md — it breaks silently
+  if the topbar height or the sidebar inset changes.
 
 ## Audits — both measured, both written down
 
@@ -67,6 +73,9 @@ does not answer for 5.8 s. Everything else is in git.
   actions. Declarative `<BrowserRouter>` + `<Routes>` would drop it, at the cost
   of replacing the `useMatches()`/`handle` breadcrumb with a path→label map.
   Worth deciding before the next payload pass.
+- Two artefacts from verifying the audit trail on 2026-07-27: a "Test audit"
+  category, permanently in the dropdown because categories have no delete UI,
+  and a `test@college.ci` account. Both are real rows in the live project.
 - The non-admin redirect off `/users` and `/investors` is still unexercised.
   There are two accounts now, but the test user was given `admin`, so nothing
   in the project holds a non-admin role. Needs an `investor`-role account.
