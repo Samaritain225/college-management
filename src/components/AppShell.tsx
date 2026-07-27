@@ -124,7 +124,10 @@ export function AppShell() {
         <SidebarProvider
           style={
             {
-              "--sidebar-width": "14rem",
+              // 12.5rem, down from 14rem. The rail was wider than its longest
+              // label ("Investisseurs") needed, which opened a 44px trench
+              // between the last nav pixel and the content card.
+              "--sidebar-width": "12.5rem",
               "--header-height": "3.5rem",
             } as React.CSSProperties
           }

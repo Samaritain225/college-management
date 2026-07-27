@@ -98,6 +98,13 @@ multi-tenant UI yet — see "Known gaps" below.
   `grant_service_role_full_access` migration. Skipping this produces
   "permission denied for table X", not empty results, which is a useful
   tell.
+- **The shell has one horizontal datum at y=48 and one left rail at x=28.**
+  The topbar is `h-12`, the content card's top edge sits on its underside, and
+  the sidebar header is `h-10` (the inset sidebar starts 8px down, so 8+40=48)
+  specifically so its rule continues that line rather than missing it by 25px.
+  On the rail, the logo, the nav icons and the group labels all start at 28.
+  Change the topbar height or the sidebar's inset padding and both break
+  silently — they are arithmetic, not coincidence.
 - **The type and radius scales are pinned in `@theme`, not inherited.** They
   are restated at Tailwind 4.3's own values on purpose, so a framework upgrade
   cannot silently resize 250 `text-xs` labels or reshape every card. If you
