@@ -5,55 +5,70 @@ Last updated 2026-07-27. Cap: 100 lines. See the compression protocol in
 
 ## Recently landed
 
-- R2 uploads work end to end for the college logo and profile avatars.
-- Settings split into three sections; college identity is admin-only.
-- Batch 1, free wins: mid-currency wrapping, the hardcoded admin email, the
-  dark-mode flash, and three sub-AA light-mode colours.
-- The dashboard's false negative balance is fixed — it read −102,928,756 on an
-  account holding +79,321,244, because it summed cotisation alone and never
-  `other_income`. The four stat cards now reconcile on screen and colour by sign.
-- "Répartition du budget" is a doughnut. Card 2 is "Encaissements", not
-  "Revenus": that would count investor capital as money the college earned.
-- Every data table pages at ten rows; expenses pages server-side via
-  `expenses_page()` (656 kB → 4.5 kB), the small tables in memory.
-- The activity log paginates via `activity_feed()` on a keyset cursor, and
-  non-admins now read only their own rows — so a non-admin's "Activités
-  récentes" shows only their own actions.
-- The audit trail is verified end to end: creating a user and creating a
-  category both land in the feed with the right copy. `admin-users` is deployed
-  (ACTIVE v8) and `expense_categories` has its trigger.
-- **The app has real URLs** (react-router v7, English paths). Detail views are
-  routes, so `/investors/:id` is linkable and survives a reload. That deleted
-  the tab apparatus and the `onBreadcrumbChange`/`backTrigger` channel;
-  `App.tsx` went from 497 lines to 27.
-- Migration history is aligned for the first time: 14 migrations, nothing
-  local-only or remote-only.
+- R2 uploads, split settings, the dashboard balance fix, server-side paging
+  for expenses and the activity feed, real URLs via react-router, and the
+  y=48/x=28 shell datum are all shipped — see git log and `AGENTS.md` rather
+  than this file for their detail.
 - The period filter no longer turns balances into nonsense. Three stat figures
   divided a period flow by an all-time total; the worst read "Solde Restant /
   Découvert" in red on a solvent college. Filtered, that card is now "Flux net".
-- The shell has one horizontal datum (y=48) and one left rail (x=28); sidebar
-  is 12.5rem. The arithmetic behind both is in AGENTS.md — it breaks silently
-  if the topbar height or the sidebar inset changes.
+- Migration history is aligned, nothing local-only or remote-only —
+  `supabase migration list` is the source of truth, not a count here.
 
 ## Audits — both measured, both written down
 
-- `docs/perf-audit-2026-07-26.md` — network, payload and bundle.
+- `docs/perf-audit-2026-07-26.md` — network, payload and bundle. Headline:
+  reducing *parallel* round-trips is nearly worthless (10 multiplexed requests
+  ≈ 3, ~260 ms, because `Promise.all` over one HTTP/2 connection already
+  overlaps them) — a *sequential* step costs 5–10× more than an extra parallel one.
 - `docs/ui-audit-2026-07-26.md` — contrast, type, images, layout.
+- `docs/expenses-ux-benchmark-2026-07-27.md` and
+  `docs/expenses-page-plan-2026-07-27.md` — the expenses pages judged as a
+  user, six-phase plan. Phases 1–4 and 6 are landed — see below. Phase 5
+  (categories money columns) is planned but not started, waiting on Sam.
 
-Headline correction: reducing *parallel* round-trips is nearly worthless — 10
-multiplexed requests measure the same wall-clock as 3 (~260 ms), because
-`Promise.all` over one HTTP/2 connection already overlaps them. A *sequential*
-step costs 5–10× more than an extra parallel one.
+## Expenses page — Phase 1–4 + 6 landed 2026-07-27
 
-## Batches — all seven done
-
-The audit backlog is closed. Order was not the plan's: 6 jumped ahead of 5
-because the router blocked the super-admin dashboard, and 3b was pulled forward
-once the seed proved the dashboard payload was the single largest cost.
-
-Two results worth keeping: `dashboard_summary()` took the dashboard from
-2.76 MB to 14 kB, and a warm reload now paints at FCP 208 ms while the network
-does not answer for 5.8 s. Everything else is in git.
+- `expenses_page` v2 (migration `20260727094500`, overload cleanup in
+  `20260727095800` — see the `create or replace` gotcha in `AGENTS.md`) adds
+  `paid`/`reliquat`/`receipt_key` per row, period-scoped
+  `reliquat_amount`/`unpaid_count`/largest-expense fields, a same-length
+  prior-period comparison (`prev_amount`/`elapsed_days`), a `filtered_total`
+  that respects search, and whitelisted sort params.
+- Client fixes: the receipt panel shows the real `receipt_key` instead of a
+  hardcoded "no file" state that also promised an upload that doesn't exist;
+  the category sheet's two conflicting counts (760 vs a 200-row cap) now
+  agree; the period filter renders on the Categories tab too (it was already
+  being applied there, invisibly); KPI footers say "sur la période" instead of
+  "au total" when a period is selected; dates are forced `fr-FR` day-only via
+  `formatDay()` in `utils.ts`, replacing browser-locale `toLocaleDateString`/
+  `toLocaleString` (the latter fabricated a `00:00:00` next to a plain date).
+- The four KPI cards are now "Dépensé sur la période" (with a same-length
+  prior-period % change), "Reste à payer" (terracotta above zero, green
+  "Tout est soldé" at zero — not full red/`text-negative`, since that colour
+  is reserved elsewhere in the app for a genuinely overdrawn account and an
+  unpaid invoice lagging a few days is routine, not alarming), "Poste le plus
+  lourd" and "Plus grosse dépense". "Aujourd'hui" and "Dépense moyenne" are
+  gone — verified live: the −53% comparison for "Ce mois-ci" matched the
+  manual calculation exactly.
+- The table is sortable on Date/Catégorie/Montant (verified live: ascending
+  amount surfaced the real 5,000 F CFA floor, descending surfaced the
+  2,700,000 salary runs), has a total row that respects every filter
+  (`filtered_total` from the RPC), shows a small "Reste X" line under any row
+  with a positive reliquat, and the responsive column order is reversed —
+  Description now survives to mobile; Enregistré par is what drops first,
+  since the description is the row's name and the recorder isn't.
+- Phase 6 was revised from CSV to print/PDF at Sam's request: one "Imprimer"
+  button, a print-only report (`ExpensesPage.tsx`), and `window.print()` —
+  the browser's own dialog covers page range and "Save as PDF". "Enregistré
+  par" is omitted from the printout only (Sam: not needed on paper). Three
+  bugs surfaced and were fixed verifying this live — all three are now
+  gotchas in `AGENTS.md`: the PostgREST 1000-row cap on `expenses_export`,
+  `window.print()` needing `flushSync`, and the vendored sidebar's
+  `h-svh overflow-hidden` wrapper crushing the report onto one tiny page.
+- Not yet cleaned up: a "Test phase 2 verification" expense (12,345 F CFA,
+  category Administration, receipt `RECU-TEST-001`) from verifying the
+  receipt fix in-browser — same bucket as the artifacts under "Blocking" below.
 
 ## Blocking and open risks
 
@@ -63,16 +78,11 @@ does not answer for 5.8 s. Everything else is in git.
   not running, so `db dump`, `db diff` and `db reset` all fail; `migration
   list`, `db push`, `migration fetch` and `functions deploy` work fine.
 
-- Two `text-[0.8rem]` remain in `components/ui/calendar.tsx`, left alone
-  deliberately: it is vendored shadcn, and 0.8rem sits between `xs` and `sm`,
-  so folding it would change the date picker's appearance rather than codify it.
-
-- The router cost **+28.5 kB gzipped** on the entry chunk (85.4 → 113.9), more
-  than the ~20 kB estimated when choosing it. Most of that is the data-router
-  runtime pulled in by `createBrowserRouter`, and this app uses no loaders or
-  actions. Declarative `<BrowserRouter>` + `<Routes>` would drop it, at the cost
-  of replacing the `useMatches()`/`handle` breadcrumb with a path→label map.
-  Worth deciding before the next payload pass.
+- The router cost **+28.5 kB gzipped** on the entry chunk, more than the
+  ~20 kB estimated — `createBrowserRouter`'s data-router runtime, unused
+  since this app has no loaders/actions. Swapping to declarative
+  `<BrowserRouter>` would drop it but needs a path→label map to replace the
+  `useMatches()` breadcrumb first. Worth deciding before the next payload pass.
 - Two artefacts from verifying the audit trail on 2026-07-27: a "Test audit"
   category, permanently in the dropdown because categories have no delete UI,
   and a `test@college.ci` account. Both are real rows in the live project.
@@ -84,6 +94,13 @@ does not answer for 5.8 s. Everything else is in git.
 - Leaked-password protection is off. Dashboard setting, waiting on Sam.
 - Delete-on-change for uploads has never run with a second upload, and avatar
   upload has never run at all. Same code path as the proven logo upload.
+- **No UI writes to `expense_payments`.** The Phase 1 RPC surfaced
+  "Payé"/"Reste" on every expense, and Sam asked (reasonably) where that data
+  comes from — the answer is nowhere reachable from the app: the table is
+  read-only from the client today, so every new expense shows "Payé: 0" and
+  a full reliquat forever. Whatever payment rows exist were seeded directly
+  in Postgres. Recording a payment (amount + date against an expense) is new
+  scope, not part of the six-phase plan — flagged for Sam to decide on.
 
 ## Decided, not yet built
 

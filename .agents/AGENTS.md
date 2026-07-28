@@ -142,6 +142,15 @@ multi-tenant UI yet — see "Known gaps" below.
   stored. Run it to recover a genuinely absent file, then revert everything else
   it touched; the committed files are the reviewed artifact and the history
   table is not.
+- **`create or replace function` with new trailing parameters does not
+  replace anything — Postgres identifies a function by name *and* argument
+  types, so it creates a second overload.** Doing this to `expenses_page`
+  (adding `p_sort`/`p_dir`) left both the old 7-arg and new 9-arg versions
+  live, and any caller naming exactly the original 7 params became ambiguous
+  ("function expenses_page(...) is not unique") — Postgres fills in the new
+  params' defaults on both candidates, so both match. Drop the old signature
+  (`drop function if exists ...(<old arg types>)`) in the *same* migration
+  that adds parameters, not a follow-up.
 - **Check the version `apply_migration` actually assigned before naming the
   file.** Re-applying a migration (delete the `schema_migrations` row, apply
   again) mints a *new* version, so a file named from the previous attempt
@@ -176,6 +185,41 @@ multi-tenant UI yet — see "Known gaps" below.
   stepped separately for each mode (the dark lightness band is 0.48–0.67 against
   light's 0.43–0.77, so light values do not carry over) and are validated with
   the dataviz skill's `validate_palette.js`. Re-run it if you change one.
+- **A table-returning RPC is silently capped at PostgREST's default row
+  limit (1000), with no error and no signal that it happened.** Calling
+  `expenses_export` (a `returns table (...)` function meant to pull the
+  *entire* filtered ledger for the print report) came back as exactly 1000
+  rows against a 1802-row table — not 1802, not an error, just a quiet
+  truncation. `.range()` works on an RPC call exactly like it does on a
+  table select, so any "fetch everything" query needs to page through in
+  chunks (`.range(offset, offset + 999)`, looping until a chunk comes back
+  short of a full page) rather than trusting one call to return it all.
+- **`window.print()` reads the DOM synchronously — an ordinary `setState`
+  does not guarantee the update has committed by the time the very next
+  line runs, only by the next paint.** The expenses print report fetched
+  fresh rows, called `setPrintRows(rows)`, then `window.print()` immediately
+  after; the dialog sometimes saw the *previous* (often empty) report
+  because React hadn't necessarily flushed yet. Fixed by wrapping the state
+  update in `flushSync` (from `react-dom`) so the commit is guaranteed to
+  have happened before `window.print()` is called. A `requestAnimationFrame`
+  chain looks like it should work too, but rAF doesn't reliably fire on a
+  backgrounded or non-visible tab — it left the bug intermittent instead of
+  fixing it.
+- **The vendored shadcn sidebar's outermost wrapper is `h-svh w-full
+  overflow-hidden`** (`components/ui/sidebar.tsx`, `data-slot="sidebar-wrapper"`)
+  **— on screen this is correct (the app's own inner regions scroll, not the
+  page), but it silently clips anything printed to one viewport-tall,
+  overflow-hidden "page."** The expenses print report — a full, unpaged,
+  often 1,800-row table — rendered inside this wrapper came out crushed onto
+  a single sheet and shrunk to fit, instead of paginating naturally across
+  as many physical pages as the content needs. Printing needs the opposite
+  of the screen behavior: natural height, nothing clipped. Fixed by adding
+  `print:h-auto print:overflow-visible print:w-auto` as a `className` on the
+  `<SidebarProvider>` call site in `AppShell.tsx` — overriding the vendored
+  component from outside rather than editing it, same pattern as the
+  `calendar.tsx` `text-[0.8rem]` left alone elsewhere in this file. Any
+  future full-page print or export view needs the same override, or it will
+  silently inherit this clip again.
 - **PostgREST can only embed through a real FK.** `investors.user_id`,
   `expenses.recorded_by`, and `activity_log.user_id` originally pointed
   at `auth.users` (correct for integrity, since that's the real FK
@@ -243,6 +287,15 @@ Every data table in the app follows this exact pattern — match it for any new 
 - Non-essential columns: `hidden sm:table-cell` / `hidden md:table-cell`.
 
 ## Testing discipline
+
+**`tsc --noEmit -p .` is a silent no-op in this repo.** `tsconfig.json` is
+solution-style — `{ "files": [], "references": [...] }` — so plain `-p .`
+type-checks nothing and exits 0 regardless of real errors; it only forwards to
+the referenced `tsconfig.app.json`/`tsconfig.node.json` in `--build` mode. Use
+`npx tsc -b --force` for an actual check. This produced a false "clean"
+typecheck for a full session in 2026-07-27 while a real bug sat in
+`ExpensesPage.tsx` (a `useState<ExpenseStats>` initial value missing five of
+the interface's required fields) — `tsc -b` caught it immediately.
 
 Before applying any migration to the real project: stand up a throwaway
 local Postgres (`brew install postgresql@16`, a scratch data dir, stub
