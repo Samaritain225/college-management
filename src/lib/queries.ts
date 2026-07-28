@@ -217,8 +217,9 @@ export interface Expense {
   recorded_by: string
   recorded_by_name: string | null
   reverses_expense_id: string | null
-  /** Reference typed into the "N° de reçu" field at creation, or null. There
-   *  is no file upload yet — this is a text reference, not an attachment. */
+  /** R2 object key for an uploaded receipt, or null. Rows created before the
+   *  upload existed hold a hand-typed text reference in this same column
+   *  instead — see `isUploadedReceiptKey` for telling the two apart. */
   receipt_key: string | null
   payee: string | null
   payment_method: PaymentMethod | null

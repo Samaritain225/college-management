@@ -1,6 +1,6 @@
 # Current State — Wagnon Budget
 
-Last updated 2026-07-27. Cap: 100 lines. See the compression protocol in
+Last updated 2026-07-28. Cap: 100 lines. See the compression protocol in
 `AGENTS.md` before adding to this file.
 
 ## Recently landed
@@ -24,51 +24,19 @@ Last updated 2026-07-27. Cap: 100 lines. See the compression protocol in
 - `docs/ui-audit-2026-07-26.md` — contrast, type, images, layout.
 - `docs/expenses-ux-benchmark-2026-07-27.md` and
   `docs/expenses-page-plan-2026-07-27.md` — the expenses pages judged as a
-  user, six-phase plan. Phases 1–4 and 6 are landed — see below. Phase 5
-  (categories money columns) is planned but not started, waiting on Sam.
+  user, six-phase plan.
 
-## Expenses page — Phase 1–4 + 6 landed 2026-07-27
+## Expenses page — Phases 1–4 and 6 landed 2026-07-27
 
-- `expenses_page` v2 (migration `20260727094500`, overload cleanup in
-  `20260727095800` — see the `create or replace` gotcha in `AGENTS.md`) adds
-  `paid`/`reliquat`/`receipt_key` per row, period-scoped
-  `reliquat_amount`/`unpaid_count`/largest-expense fields, a same-length
-  prior-period comparison (`prev_amount`/`elapsed_days`), a `filtered_total`
-  that respects search, and whitelisted sort params.
-- Client fixes: the receipt panel shows the real `receipt_key` instead of a
-  hardcoded "no file" state that also promised an upload that doesn't exist;
-  the category sheet's two conflicting counts (760 vs a 200-row cap) now
-  agree; the period filter renders on the Categories tab too (it was already
-  being applied there, invisibly); KPI footers say "sur la période" instead of
-  "au total" when a period is selected; dates are forced `fr-FR` day-only via
-  `formatDay()` in `utils.ts`, replacing browser-locale `toLocaleDateString`/
-  `toLocaleString` (the latter fabricated a `00:00:00` next to a plain date).
-- The four KPI cards are now "Dépensé sur la période" (with a same-length
-  prior-period % change), "Reste à payer" (terracotta above zero, green
-  "Tout est soldé" at zero — not full red/`text-negative`, since that colour
-  is reserved elsewhere in the app for a genuinely overdrawn account and an
-  unpaid invoice lagging a few days is routine, not alarming), "Poste le plus
-  lourd" and "Plus grosse dépense". "Aujourd'hui" and "Dépense moyenne" are
-  gone — verified live: the −53% comparison for "Ce mois-ci" matched the
-  manual calculation exactly.
-- The table is sortable on Date/Catégorie/Montant (verified live: ascending
-  amount surfaced the real 5,000 F CFA floor, descending surfaced the
-  2,700,000 salary runs), has a total row that respects every filter
-  (`filtered_total` from the RPC), shows a small "Reste X" line under any row
-  with a positive reliquat, and the responsive column order is reversed —
-  Description now survives to mobile; Enregistré par is what drops first,
-  since the description is the row's name and the recorder isn't.
-- Phase 6 was revised from CSV to print/PDF at Sam's request: one "Imprimer"
-  button, a print-only report (`ExpensesPage.tsx`), and `window.print()` —
-  the browser's own dialog covers page range and "Save as PDF". "Enregistré
-  par" is omitted from the printout only (Sam: not needed on paper). Three
-  bugs surfaced and were fixed verifying this live — all three are now
-  gotchas in `AGENTS.md`: the PostgREST 1000-row cap on `expenses_export`,
-  `window.print()` needing `flushSync`, and the vendored sidebar's
-  `h-svh overflow-hidden` wrapper crushing the report onto one tiny page.
+- Shipped: `expenses_page` v2 (migrations `20260727094500` and
+  `20260727095800`), sortable Date/Catégorie/Montant, a filter-respecting
+  total row, `formatDay()` for `fr-FR` day-only dates, and print/PDF via
+  `window.print()` instead of CSV at Sam's request. Detail is in the git log
+  and in the three `AGENTS.md` gotchas it produced.
+- Phase 5 (categories money columns) is planned, not started, waiting on Sam.
 - Not yet cleaned up: a "Test phase 2 verification" expense (12,345 F CFA,
-  category Administration, receipt `RECU-TEST-001`) from verifying the
-  receipt fix in-browser — same bucket as the artifacts under "Blocking" below.
+  Administration, receipt `RECU-TEST-001`) from verifying the receipt fix
+  in-browser — same bucket as the artifacts under "Blocking" below.
 
 ## Blocking and open risks
 
@@ -86,21 +54,84 @@ Last updated 2026-07-27. Cap: 100 lines. See the compression protocol in
 - Two artefacts from verifying the audit trail on 2026-07-27: a "Test audit"
   category, permanently in the dropdown because categories have no delete UI,
   and a `test@college.ci` account. Both are real rows in the live project.
-- The non-admin redirect off `/users` and `/investors` is still unexercised.
-  There are two accounts now, but the test user was given `admin`, so nothing
-  in the project holds a non-admin role. Needs an `investor`-role account.
+- The non-admin redirect off `/users` and `/investors` is still unexercised,
+  but no longer blocked: "Test Investor" (`b9dc85ea`) holds `investor` at this
+  college, so the redirect can now actually be driven.
 - CAPTCHA is off in Supabase Auth — no bot protection on login. Re-enable once
   deployed to Pages, which supplies the domain Turnstile needs.
 - Leaked-password protection is off. Dashboard setting, waiting on Sam.
-- Delete-on-change for uploads has never run with a second upload, and avatar
-  upload has never run at all. Same code path as the proven logo upload.
-- **No UI writes to `expense_payments`.** The Phase 1 RPC surfaced
-  "Payé"/"Reste" on every expense, and Sam asked (reasonably) where that data
-  comes from — the answer is nowhere reachable from the app: the table is
-  read-only from the client today, so every new expense shows "Payé: 0" and
-  a full reliquat forever. Whatever payment rows exist were seeded directly
-  in Postgres. Recording a payment (amount + date against an expense) is new
-  scope, not part of the six-phase plan — flagged for Sam to decide on.
+- Avatar and logo upload are both proven end to end, verified 2026-07-28 by
+  fetching the stored keys at the public base URL: `logos/7318eb58….jpg`
+  returns 200 (5.7 kB) and `avatars/1f829b24…/3b595908….jpg` returns 200
+  (35.6 kB), so compression, presign, PUT and `publicUrl` all work.
+  **Receipt upload has never actually run** — the only `receipt_key` in the
+  table is the hand-typed `RECU-TEST-001`, which 404s. Delete-on-change has
+  still never run with a second upload.
+- The `expense_payments` question is settled: an expense is a *completed*
+  outflow, so there is no "Reste à payer" and no payment-recording UI. See
+  `docs/superpowers/specs/2026-07-28-cash-expenses-design.md`. The `paid` /
+  `reliquat` fields still come back from `expenses_page` and are now dead
+  weight on every page load.
+
+## Expense page mobile pass, 2026-07-28 — landed, verified in-browser at 375px
+
+- The period filter reaches the ledger table again. It had been dropped from
+  the table query while the default period moved from "all" to "this_month",
+  so the KPI card read "3 137 845 F CFA · 57 dépenses" directly above a footer
+  reading "1802 dépenses filtrées · 152 548 245". Both now read 57 /
+  3 137 845. `selectedPeriod` is back in the `setPage(1)` effect's deps.
+- Below `sm` the ledger is a card list, not a table. The table measured 589px
+  inside a 331px column — 258px of horizontal drag on the same surface the
+  reader swipes to scroll the page. Each card carries date, category,
+  description, amount, payee and method, so nothing is lost to a hidden
+  column; the table is unchanged from `sm` up (688px in 688px, no overflow).
+- Payee and payment method are in the detail sheet now. They had existed only
+  in a `hidden md:table-cell` column, so a phone could not reach either.
+- All four dialogs in the app now scroll on a phone — three on the expenses
+  page plus the user-create dialog — see the `DialogContent` gotcha in
+  `AGENTS.md`. There are only four; investors, categories and settings turned
+  out to use no modal at all.
+- Three KPI cards, not four. "Transactions enregistrées" repeated the count
+  already in the first card's footer.
+- Legacy paper receipt references and R2 object keys share the `receipt_key`
+  column. `isUploadedReceiptKey` in `uploads.ts` tells them apart on the slash
+  in the key; a reference renders as text now, not a link that 404s.
+- The receipt size gate applies to PDFs only. Gating the raw file at 10 MB
+  rejected the commonest mobile case — a phone photo arrives at 8–15 MB and
+  `compressImage` re-encodes it to well under 1 MB *after* the input's
+  onChange. Images are left to compression plus the edge function's ceiling.
+- Still open: payee and payment method come from a *second, sequential* round
+  trip (`queries.ts`, `.from("expenses").in("id", ids)` after the RPC) instead
+  of `expenses_page`'s row payload. The perf audit's headline is that a
+  sequential hop costs 5–10× a parallel one, and this runs on every page, sort
+  and search. Fixing it is a migration — mind the overload gotcha.
+
+## storage-sign — college-scoped, deployed and exercised 2026-07-28
+
+- A role now only counts at the college it was granted at. The old code read
+  every `user_roles` row for the caller regardless of `college_id`, so a
+  treasurer at any college passed the finance check for every other college's
+  receipts. `super_admin` is matched on its global `college_id IS NULL` row.
+- New objects land under `colleges/<college-id>/logos/…` and
+  `colleges/<college-id>/receipts/<year>/…`. Avatars stay `avatars/<user-id>/`
+  on purpose — roles are many-to-many across colleges, so a person is not
+  owned by one college the way a logo or a receipt is.
+- Receipt deletes are refused outright. `expenses` is append-only, so leaving
+  the document deletable put a hole through that guarantee. Nothing calls it —
+  `deleteFile` is only ever reached with "avatar" and "logo".
+- `LEGACY_LOGO_PREFIX` exists because the one stored logo predates the layout
+  (`logos/7318eb58….jpg`); without it, replacing the logo would stop cleaning
+  up the old object.
+- Verified against the deployed function with live credentials, all
+  non-destructive: correct college signs a `colleges/<id>/receipts/2026/…`
+  key (200); missing collegeId 400; a college the caller holds no role at 403;
+  receipt delete 403; avatar signs unchanged and needs no college; a logo-kind
+  request carrying an avatar key 403; another college's logo key 403; a legacy
+  `logos/…` key still accepted. Logo and avatar objects re-fetched afterwards,
+  both still 200 — nothing was destroyed proving this.
+- Never executed locally: Docker is down, so there is no local stack. The
+  above is the deployed function answering real requests, which is stronger,
+  but it means there is no pre-deploy test gate for the next change here.
 
 ## Decided, not yet built
 

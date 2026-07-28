@@ -52,6 +52,7 @@ import {
   type ExpenseExportRow,
   type ExpenseStats,
   type ExpensesSortColumn,
+  type PaymentMethod,
   type SortDirection,
 } from "@/lib/queries"
 import { TablePager } from "@/components/TablePager"
@@ -61,7 +62,7 @@ import { useDebounced } from "@/lib/useDebounced"
 import { readCache, writeCache } from "@/lib/persistentCache"
 import { useNavigate } from "react-router-dom"
 import { cn, formatDay, formatMoney } from "@/lib/utils"
-import { publicUrl, uploadFile } from "@/lib/uploads"
+import { isUploadedReceiptKey, publicUrl, uploadFile } from "@/lib/uploads"
 import { format, startOfToday } from "date-fns"
 import { fr } from "date-fns/locale"
 import {
@@ -70,7 +71,6 @@ import {
   ArrowUp,
   ArrowUpDown,
   Calendar as CalendarIcon,
-  CheckCircle2,
   Eye,
   FileText,
   FolderPlus,
@@ -93,6 +93,23 @@ function formatAmountInput(val: string): string {
   const digits = val.replace(/\D/g, "")
   if (!digits) return ""
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+}
+
+/** Matches the "10 Mo maximum" caption and the edge function's own receipt
+ *  ceiling. Applied to PDFs only — see the file input's onChange. */
+const MAX_RECEIPT_BYTES = 10 * 1024 * 1024
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: "Espèces",
+  mobile_money: "Mobile money",
+  bank_transfer: "Virement",
+  other: "Autre",
+}
+
+/** Rows predating the cash-expense fields have no method — those read "—"
+ *  rather than being labelled as any particular one. */
+function paymentMethodLabel(method: PaymentMethod | null): string {
+  return method ? PAYMENT_METHOD_LABELS[method] : "—"
 }
 
 type TabMode = "expenses" | "categories"
@@ -230,18 +247,25 @@ export function ExpensesPage({
 
   // Any filter or sort change invalidates the current page number — staying
   // on page 7 of a result set that now has two pages shows an empty table.
+  // `selectedPeriod` belongs here for the same reason as the others: it
+  // narrows the result set, so it can strand the reader past the last page.
   useEffect(() => {
     setPage(1)
-  }, [debouncedSearch, selectedCategory, sortColumn, sortDir])
+  }, [debouncedSearch, selectedCategory, selectedPeriod, sortColumn, sortDir])
 
   const loadPage = useCallback(async () => {
     if (!dbReady) return
     setPageLoading(true)
     try {
       const range = periodRange(selectedPeriod)
+      // The table carries the date range too. Without it the grid and its
+      // total row describe the whole ledger while the KPI strip above them
+      // describes the selected period — two totals on one screen, disagreeing.
       const [tableRes, kpiRes] = await Promise.all([getExpensesPage({
         search: debouncedSearch,
         categoryId: selectedCategory === "all" ? null : selectedCategory,
+        from: range.from,
+        to: range.to,
         page,
         pageSize: DEFAULT_PAGE_SIZE,
         sort: sortColumn,
@@ -666,7 +690,11 @@ export function ExpensesPage({
               be easy to compute. "Aujourd'hui" and "Dépense moyenne" are gone:
               the first was blank most days, the second averaged a 2.25M
               salary run against a 28k supply purchase and described neither. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Three cards, not four. "Transactions enregistrées" printed the
+              same count already carried in the first card's footer, so on a
+              phone — where these stack — the reader scrolled past "57" twice
+              before reaching a single expense. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <StatCard
               variant="card"
               label="Dépensé sur la période"
@@ -674,12 +702,11 @@ export function ExpensesPage({
               icon={Wallet}
               footer={
                 <>
-                  {stats.totalCount} dépense{stats.totalCount > 1 ? "s" : ""}
+                  {stats.totalCount} sortie{stats.totalCount > 1 ? "s" : ""} de caisse
                   {periodComparison ? ` · ${periodComparison}` : ""}
                 </>
               }
             />
-            <StatCard variant="card" label="Transactions enregistrées" value={String(stats.totalCount)} icon={CheckCircle2} footer="Sorties de caisse déjà payées" />
             <StatCard
               variant="card"
               label="Poste le plus lourd"
@@ -759,9 +786,71 @@ export function ExpensesPage({
 
           {/* Expenses Datatable */}
           <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
+            {/* Below sm the table is 589px wide inside a ~331px column, so it
+                can only be read by dragging it sideways — and the drag target
+                is the same surface the reader swipes to scroll the page. One
+                card per expense instead, carrying every column the table has
+                including the two the md-hidden column would otherwise cost a
+                phone reader entirely. */}
             <div
               className={cn(
-                "overflow-x-auto transition-opacity",
+                "sm:hidden divide-y divide-ink/10 transition-opacity",
+                pageLoading && "opacity-50"
+              )}
+            >
+              {filteredExpenses.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => handleConsult(e)}
+                  className="w-full text-left p-3 space-y-1.5 hover:bg-teal-100/30 active:bg-teal-100/40 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-display font-semibold text-xs text-ink min-w-0 break-words">
+                      {e.description}
+                    </span>
+                    <span className="font-display font-bold text-xs text-ink shrink-0 tabular-nums">
+                      {formatMoney(e.amount, "").trim()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-2xs text-ink-soft tabular-nums">{formatDay(e.spent_at)}</span>
+                    <Badge variant="neutral" className="text-2xs font-normal">
+                      {e.category_name}
+                    </Badge>
+                  </div>
+                  <p className="text-2xs text-ink-soft break-words">
+                    {e.payee || "Non renseigné"} · {paymentMethodLabel(e.payment_method)}
+                  </p>
+                </button>
+              ))}
+
+              {filteredExpenses.length === 0 && !pageLoading && (
+                <div className="p-6 text-center space-y-1">
+                  <p className="font-medium text-ink text-xs">Aucune dépense trouvée</p>
+                  <p className="text-xs text-ink-soft">
+                    {searchQuery || selectedCategory !== "all" || selectedPeriod !== "all"
+                      ? "Essayez de modifier vos filtres de recherche."
+                      : "Cliquez sur 'Enregistrer une dépense' pour démarrer."}
+                  </p>
+                </div>
+              )}
+
+              {filteredExpenses.length > 0 && (
+                <div className="flex items-center justify-between gap-3 bg-teal-100/20 p-3">
+                  <span className="text-xs font-display font-semibold text-ink">
+                    {total} dépense{total > 1 ? "s" : ""} filtrée{total > 1 ? "s" : ""}
+                  </span>
+                  <span className="font-display font-bold text-xs text-ink shrink-0 tabular-nums">
+                    {formatMoney(filteredTotal, "").trim()}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div
+              className={cn(
+                "hidden sm:block transition-opacity",
                 pageLoading && "opacity-50"
               )}
             >
@@ -803,7 +892,7 @@ export function ExpensesPage({
                     </TableCell>
                     <TableCell className="text-xs text-ink-soft hidden md:table-cell whitespace-nowrap">
                       <span className="font-medium text-ink">{e.payee || "Non renseigné"}</span>
-                      <span className="block text-2xs">{e.payment_method === "cash" ? "Espèces" : e.payment_method === "mobile_money" ? "Mobile money" : e.payment_method === "bank_transfer" ? "Virement" : e.payment_method === "other" ? "Autre" : "—"}</span>
+                      <span className="block text-2xs">{paymentMethodLabel(e.payment_method)}</span>
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap">
                       <div className="font-display font-bold text-xs text-ink">
@@ -962,9 +1051,16 @@ export function ExpensesPage({
       )}
 
       {/* ----------------- DIALOG 1: NEW EXPENSE MODAL ----------------- */}
+      {/* max-h + overflow-y-auto because `DialogContent` is `fixed` and
+          centred with `-translate-y-1/2`, with no height cap of its own: a
+          form taller than the viewport spills off *both* edges and cannot be
+          scrolled to, so the submit button becomes unreachable. Measured at
+          851px against a 375x667 phone, where "Enregistrer la dépense" landed
+          7px below the fold. `svh`, not `vh` — `vh` is the viewport with the
+          mobile URL bar expanded, which is not what the user is looking at. */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent
-          className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10"
+          className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10 max-h-[90svh] overflow-y-auto"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
@@ -1165,10 +1261,31 @@ export function ExpensesPage({
                 id="dialog-receipt"
                 type="file"
                 accept="image/jpeg,image/png,image/webp,application/pdf"
-                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null
+                  // Only PDFs are gated here. Images are re-encoded to JPEG at
+                  // 1600px by `compressImage` *after* this point, and a phone
+                  // photo routinely arrives at 8–15 MB raw and lands under
+                  // 1 MB — rejecting on the raw size would refuse the single
+                  // most common way a receipt gets captured on this app.
+                  const gated = file && !file.type.startsWith("image/")
+                  if (gated && file.size > MAX_RECEIPT_BYTES) {
+                    setReceiptFile(null)
+                    e.target.value = ""
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      general: "Ce PDF dépasse 10 Mo. Choisissez un fichier plus léger.",
+                    }))
+                    return
+                  }
+                  setFieldErrors((prev) => ({ ...prev, general: undefined }))
+                  setReceiptFile(file)
+                }}
                 className="text-xs border-ink/15 bg-paper text-ink"
               />
-              <p className="text-2xs text-ink-soft">Photo ou PDF, 10 Mo maximum.</p>
+              <p className="text-2xs text-ink-soft">
+                Photo ou PDF. Les photos sont compressées automatiquement ; PDF 10 Mo maximum.
+              </p>
               {receiptFile && <p className="text-xs font-medium text-ink">{receiptFile.name}</p>}
             </div>
 
@@ -1195,9 +1312,9 @@ export function ExpensesPage({
         </DialogContent>
       </Dialog>
 
-      {/* ----------------- DIALOG 2: NEW CATEGORY MODAL ----------------- */}
+      {/* ----------------- DIALOG 2: PRINT REPORT MODAL ----------------- */}
       <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
-        <DialogContent className="sm:max-w-sm p-6 space-y-4 bg-paper border border-ink/10">
+        <DialogContent className="sm:max-w-sm p-6 space-y-4 bg-paper border border-ink/10 max-h-[90svh] overflow-y-auto">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-lg font-display font-bold text-ink">Imprimer les dépenses</DialogTitle>
             <DialogDescription className="text-xs text-ink-soft">Choisissez la période à inclure dans le rapport.</DialogDescription>
@@ -1215,7 +1332,7 @@ export function ExpensesPage({
 
       <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
         <DialogContent
-          className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10"
+          className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10 max-h-[90svh] overflow-y-auto"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
@@ -1312,8 +1429,11 @@ export function ExpensesPage({
                 </p>
               </div>
 
-              {/* Detailed Grid */}
-              <div className="space-y-4 flex-1">
+              {/* Detailed Grid. overflow-y-auto because this is the only
+                  scrollable region of the sheet — the header and the amount
+                  box above it are fixed height, and on a short phone this
+                  list is what runs past the bottom edge. */}
+              <div className="space-y-4 flex-1 overflow-y-auto">
                 <div className="grid grid-cols-3 items-start gap-4 border-b border-ink/10 pb-3">
                   <span className="text-xs font-display font-semibold text-ink-soft flex items-center gap-1.5">
                     <FileText className="size-4" /> Catégorie
@@ -1329,6 +1449,26 @@ export function ExpensesPage({
                   </span>
                   <span className="col-span-2 text-sm text-ink">
                     {formatDay(selectedExpense.spent_at)}
+                  </span>
+                </div>
+
+                {/* Payee and method live only in this sheet on a phone — the
+                    table column carrying them is hidden below md. */}
+                <div className="grid grid-cols-3 items-start gap-4 border-b border-ink/10 pb-3">
+                  <span className="text-xs font-display font-semibold text-ink-soft flex items-center gap-1.5">
+                    <User className="size-4" /> Payé à
+                  </span>
+                  <span className="col-span-2 text-sm text-ink break-words">
+                    {selectedExpense.payee || "Non renseigné"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 items-start gap-4 border-b border-ink/10 pb-3">
+                  <span className="text-xs font-display font-semibold text-ink-soft flex items-center gap-1.5">
+                    <Wallet className="size-4" /> Moyen
+                  </span>
+                  <span className="col-span-2 text-sm text-ink">
+                    {paymentMethodLabel(selectedExpense.payment_method)}
                   </span>
                 </div>
 
@@ -1355,7 +1495,14 @@ export function ExpensesPage({
                   </span>
                   {selectedExpense.receipt_key ? (
                     <div className="border border-ink/10 rounded-lg p-3 bg-teal-100/10">
-                      {publicUrl(selectedExpense.receipt_key) ? (
+                      {!isUploadedReceiptKey(selectedExpense.receipt_key) ? (
+                        // A paper reference, not a file. Linking it produces a
+                        // URL that resolves and 404s, so show the reference.
+                        <p className="text-sm text-ink">
+                          Référence papier :{" "}
+                          <span className="font-display font-semibold">{selectedExpense.receipt_key}</span>
+                        </p>
+                      ) : publicUrl(selectedExpense.receipt_key) ? (
                         <a href={publicUrl(selectedExpense.receipt_key)!} target="_blank" rel="noreferrer" className="text-sm font-display font-semibold text-teal-950 underline underline-offset-2">
                           Ouvrir la pièce jointe
                         </a>

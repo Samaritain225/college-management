@@ -571,9 +571,12 @@ export function UsersPage({
       </header>
 
       {/* Create dialog */}
+      {/* max-h + overflow-y-auto: DialogContent is `fixed` and centred with no
+          height cap of its own, so a form taller than the viewport spills off
+          both edges and cannot be scrolled to. See AGENTS.md. */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent
-          className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10"
+          className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10 max-h-[90svh] overflow-y-auto"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >

@@ -11,6 +11,7 @@
 
 import { supabase } from "@/lib/supabase"
 import { compressImage } from "@/lib/image"
+import { COLLEGE_ID } from "@/lib/queries"
 
 export type UploadKind = "logo" | "avatar" | "receipt"
 
@@ -38,6 +39,18 @@ export function publicUrl(key: string | null | undefined): string | null {
     return null
   }
   return `${PUBLIC_BASE_URL.replace(/\/$/, "")}/${key}`
+}
+
+/**
+ * Whether a stored `receipt_key` is a real uploaded object or a hand-typed
+ * paper reference (e.g. "RECU-TEST-001") from before uploads existed. Both
+ * live in the same column, and handing the latter to `publicUrl` produces a
+ * link that resolves and 404s. Every key this app writes is server-derived
+ * as `<kind>/…/<uuid>.<ext>`, so the slash is the tell — a reference someone
+ * typed off a paper receipt has no path structure.
+ */
+export function isUploadedReceiptKey(key: string | null | undefined): boolean {
+  return !!key && key.includes("/")
 }
 
 async function callStorageSign<T>(body: Record<string, unknown>): Promise<T> {
@@ -84,9 +97,13 @@ export async function uploadFile(file: File, kind: UploadKind): Promise<string> 
     }
   }
 
+  // The college the object belongs to. The function does not take the
+  // caller's word for it — it verifies the caller actually holds the required
+  // role *at this college* before signing anything.
   const { uploadUrl, key } = await callStorageSign<SignResponse["data"]>({
     action: "sign",
     kind,
+    collegeId: COLLEGE_ID,
     contentType: payload.type,
     size: payload.size,
   })
@@ -116,5 +133,5 @@ export async function uploadFile(file: File, kind: UploadKind): Promise<string> 
  * succeeded. Callers should catch and log rather than surface this failing.
  */
 export async function deleteFile(key: string, kind: UploadKind): Promise<void> {
-  await callStorageSign<{ deleted: true }>({ action: "delete", kind, key })
+  await callStorageSign<{ deleted: true }>({ action: "delete", kind, collegeId: COLLEGE_ID, key })
 }

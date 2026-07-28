@@ -220,6 +220,21 @@ multi-tenant UI yet — see "Known gaps" below.
   `calendar.tsx` `text-[0.8rem]` left alone elsewhere in this file. Any
   future full-page print or export view needs the same override, or it will
   silently inherit this clip again.
+- **The vendored `DialogContent` is `fixed`, centred with `-translate-y-1/2`,
+  and has `max-height: none` with `overflow-y: visible`** (`components/ui/
+  dialog.tsx`) **— any form taller than the viewport spills off both edges
+  with no way to scroll to it, so the submit button becomes unreachable.**
+  A fixed element does not participate in page scroll, so there is no
+  recovery: the content is simply gone. Measured on the expenses create form
+  (eight fields, 851px) at 375×667: clipped 92px top and bottom, with
+  "Enregistrer la dépense" ending at y=674 against a 667px viewport. At 812
+  the same form clips only 20px each end and the button still lands, which is
+  why this hides from anyone testing on a large phone. Fix at the call site
+  with `max-h-[90svh] overflow-y-auto` — same override-from-outside pattern
+  as the sidebar print fix above. Use `svh`, **not** `vh`: `vh` resolves to
+  the viewport with the mobile URL bar expanded, which is taller than what
+  the user is actually looking at, so `max-h-[90vh]` still overflows on a
+  phone. Only the expenses page's dialogs carry this today.
 - **PostgREST can only embed through a real FK.** `investors.user_id`,
   `expenses.recorded_by`, and `activity_log.user_id` originally pointed
   at `auth.users` (correct for integrity, since that's the real FK

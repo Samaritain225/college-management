@@ -12,17 +12,24 @@
 // deliberate: Edge Functions cap request size, and on the ~70%-connectivity
 // links this app targets, one hop beats two.
 //
-// Folder layout (see buildKey below): logos/<uuid>.<ext>,
-// avatars/<user-id>/<uuid>.<ext>, receipts/<year>/<uuid>.<ext>.
+// Folder layout (see buildKey below):
+//   colleges/<college-id>/logos/<uuid>.<ext>
+//   colleges/<college-id>/receipts/<year>/<uuid>.<ext>
+//   avatars/<user-id>/<uuid>.<ext>
 //
-// Authorization is per upload kind, mirroring the RLS rules:
-//   logo    -> admin / super_admin only (college identity)
+// Authorization is per upload kind, mirroring the RLS rules, and every
+// college-owned kind is checked against the college the caller named:
+//   logo    -> admin / super_admin *at that college* (college identity)
 //   avatar  -> any authenticated user, but only ever their own key
-//   receipt -> admin / super_admin / treasurer (finance)
+//   receipt -> admin / super_admin / treasurer *at that college* (finance)
+// A role is only counted for the college it was granted at; super_admin is
+// the exception, being global with college_id IS NULL.
+//
 // Delete requests are checked the same way, *plus* the key must actually fall
 // under that kind's own prefix — otherwise a caller authorized for "avatar"
 // could pass kind="avatar" but a "logos/..." key and delete something they
-// have no business touching.
+// have no business touching. Receipt deletes are refused outright: expenses
+// are append-only, so their evidence has to be too.
 //
 // Required secrets (supabase secrets set ...):
 //   R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
@@ -97,16 +104,36 @@ const EXTENSIONS: Record<string, string> = {
 const PRESIGN_TTL_SECONDS = 300
 
 /** Folder each kind lives under — single source of truth, used both to build
- *  a fresh key and to validate a key handed back for deletion. */
-function folderFor(kind: UploadKind, callerId: string): string {
+ *  a fresh key and to validate a key handed back for deletion.
+ *
+ *  College-owned objects (logo, receipt) carry the college id in the path.
+ *  Without it every college shares one flat namespace, and the delete scope
+ *  check below degenerates to "is this a receipt?" — which any finance user
+ *  at any college would pass, for any other college's document.
+ *
+ *  Avatars are deliberately user-scoped, not college-scoped: roles are
+ *  many-to-many across colleges (see AGENTS.md), so a person is not owned by
+ *  one college the way a logo or a receipt is. */
+function folderFor(kind: UploadKind, callerId: string, collegeId: string): string {
   if (kind === "avatar") return `avatars/${callerId}/`
-  if (kind === "logo") return "logos/"
-  return `receipts/${new Date().getFullYear()}/`
+  if (kind === "logo") return `colleges/${collegeId}/logos/`
+  return `colleges/${collegeId}/receipts/${new Date().getFullYear()}/`
 }
 
-function buildKey(kind: UploadKind, callerId: string, contentType: string): string {
+/** Objects written before the layout above carried a college. Reads are
+ *  unaffected (the key is stored verbatim and `publicUrl` just concatenates),
+ *  but a delete of one still has to be recognised. Only `logos/` appears here:
+ *  receipt deletes are refused outright, and avatars were always user-scoped. */
+const LEGACY_LOGO_PREFIX = "logos/"
+
+function buildKey(
+  kind: UploadKind,
+  callerId: string,
+  collegeId: string,
+  contentType: string
+): string {
   const ext = EXTENSIONS[contentType]
-  return `${folderFor(kind, callerId)}${crypto.randomUUID()}.${ext}`
+  return `${folderFor(kind, callerId, collegeId)}${crypto.randomUUID()}.${ext}`
 }
 
 interface Roles {
@@ -171,6 +198,7 @@ Deno.serve(async (req) => {
   let body: {
     action?: "sign" | "delete"
     kind?: string
+    collegeId?: string
     contentType?: string
     size?: number
     key?: string
@@ -187,21 +215,39 @@ Deno.serve(async (req) => {
     return json({ error: `kind must be one of: ${ALLOWED_KINDS.join(", ")}` }, 400)
   }
 
+  // Which college this request is against. Required for the college-owned
+  // kinds; avatars are user-scoped and need none.
+  const collegeId = typeof body.collegeId === "string" ? body.collegeId : ""
+  if (kind !== "avatar" && !collegeId) {
+    return json({ error: "collegeId is required for this kind" }, 400)
+  }
+
   // Role lookup with service_role: user_roles is RLS-protected, and scoping by
-  // the caller's own token here would be circular. super_admin rows are global
-  // (college_id is null) — see AGENTS.md.
+  // the caller's own token here would be circular.
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
   const { data: roleRows } = await admin
     .from("user_roles")
-    .select("role_id")
+    .select("role_id, college_id")
     .eq("user_id", caller.id)
-  const roleIds = (roleRows ?? []).map((r) => r.role_id)
+
+  // A role only counts for the college it was granted at. Reading every row
+  // regardless of college — which is what this did before — means a treasurer
+  // at one college passes the finance check for every other college's
+  // receipts. super_admin is the sole exception: those rows are global and
+  // carry `college_id IS NULL` (see AGENTS.md), so they must be matched on
+  // the null rather than excluded by a college filter.
+  const isSuperAdmin = (roleRows ?? []).some(
+    (r) => r.role_id === "super_admin" && r.college_id === null
+  )
+  const heldHere = (roleRows ?? [])
+    .filter((r) => r.college_id === collegeId)
+    .map((r) => r.role_id)
 
   const roles: Roles = {
-    isSuperAdmin: roleIds.includes("super_admin"),
-    isAdmin: roleIds.includes("super_admin") || roleIds.includes("admin"),
+    isSuperAdmin,
+    isAdmin: isSuperAdmin || heldHere.includes("admin"),
     canManageFinance:
-      roleIds.includes("super_admin") || roleIds.includes("admin") || roleIds.includes("treasurer"),
+      isSuperAdmin || heldHere.includes("admin") || heldHere.includes("treasurer"),
   }
 
   const authError = authorize(kind, roles)
@@ -211,13 +257,27 @@ Deno.serve(async (req) => {
     const key = body.key
     if (!key) return json({ error: "key is required for delete" }, 400)
 
+    // Receipts are never deleted. `expenses` is append-only — no UPDATE or
+    // DELETE grant exists for `authenticated`, and corrections are new rows
+    // (AGENTS.md, rule 1). Leaving the document deletable while the row it
+    // supports cannot be touched would put a hole straight through that
+    // guarantee: the ledger entry survives, its evidence does not. Nothing in
+    // the app calls this — `deleteFile` is only ever reached with "avatar"
+    // and "logo" — so this closes a capability that was reachable over the
+    // API without ever being needed.
+    if (kind === "receipt") {
+      return json({ error: "Receipts are append-only and cannot be deleted" }, 403)
+    }
+
     // The role check above proves the caller may act on this *kind* of
     // object; this proves the specific key actually belongs to that kind's
-    // folder (and, for avatars, to this caller specifically) — without it, an
-    // admin authorized for "logo" could pass kind="logo" alongside an
-    // unrelated receipts/... key and delete someone else's document.
-    const expectedFolder = folderFor(kind, caller.id)
-    if (!key.startsWith(expectedFolder)) {
+    // folder — scoped to this college for a logo, to this caller for an
+    // avatar. Without it an admin authorized for "logo" could pass
+    // kind="logo" alongside an unrelated key and delete another college's
+    // document.
+    const expectedFolder = folderFor(kind, caller.id, collegeId)
+    const legacyLogo = kind === "logo" && key.startsWith(LEGACY_LOGO_PREFIX)
+    if (!key.startsWith(expectedFolder) && !legacyLogo) {
       return json({ error: "key does not belong to the authorized scope" }, 403)
     }
 
@@ -248,7 +308,7 @@ Deno.serve(async (req) => {
 
   // Keys are server-derived, never client-supplied — a client-chosen key would
   // let any caller overwrite any object in the bucket.
-  const key = buildKey(kind, caller.id, contentType)
+  const key = buildKey(kind, caller.id, collegeId, contentType)
 
   // Expiry rides as a query param (X-Amz-Expires), not a header — that's how
   // SigV4 query-string signing carries it.
