@@ -32,6 +32,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -42,12 +43,16 @@ import { periodRange, type Period } from "@/lib/period"
 import {
   addCategory,
   addExpense,
+  getExpensesExport,
   getExpensesPage,
   listCategories,
   type BudgetCategory,
   type CategoryStat,
   type Expense,
+  type ExpenseExportRow,
   type ExpenseStats,
+  type ExpensesSortColumn,
+  type SortDirection,
 } from "@/lib/queries"
 import { TablePager } from "@/components/TablePager"
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination"
@@ -55,27 +60,34 @@ import { usePagedRows } from "@/lib/usePagedRows"
 import { useDebounced } from "@/lib/useDebounced"
 import { readCache, writeCache } from "@/lib/persistentCache"
 import { useNavigate } from "react-router-dom"
-import { cn, formatMoney } from "@/lib/utils"
+import { cn, formatDay, formatMoney } from "@/lib/utils"
+import { publicUrl, uploadFile } from "@/lib/uploads"
 import { format, startOfToday } from "date-fns"
 import { fr } from "date-fns/locale"
 import {
+  ArrowDown,
   ArrowRight,
-  Calculator,
+  ArrowUp,
+  ArrowUpDown,
   Calendar as CalendarIcon,
-  Clock,
+  CheckCircle2,
   Eye,
   FileText,
   FolderPlus,
   FolderTree,
+  PieChart,
   Plus,
+  Printer,
   Receipt,
   Search,
+  TrendingUp,
   User,
   Wallet,
   XCircle,
   Paperclip,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { flushSync } from "react-dom"
 
 function formatAmountInput(val: string): string {
   const digits = val.replace(/\D/g, "")
@@ -118,13 +130,17 @@ export function ExpensesPage({
   const [newCategoryDesc, setNewCategoryDesc] = useState("")
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
-  const [receiptPhotoPath, setReceiptPhotoPath] = useState("")
+  const [payee, setPayee] = useState("")
+  const [paymentMethod, setPaymentMethod] = useState<"" | "cash" | "mobile_money" | "bank_transfer" | "other">("")
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [spentAtDate, setSpentAtDate] = useState<Date | undefined>(startOfToday())
   const [fieldErrors, setFieldErrors] = useState<{
     category?: string
     amount?: string
     spentAt?: string
     description?: string
+    payee?: string
+    paymentMethod?: string
     general?: string
   }>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -149,12 +165,13 @@ export function ExpensesPage({
   // With the grid server-paged that array is one page of ten, so this fetches
   // the category's own rows instead of showing whatever happened to be loaded.
   const [catSheetExpenses, setCatSheetExpenses] = useState<Expense[]>([])
+  const [catSheetTotal, setCatSheetTotal] = useState(0)
   const [catSheetLoading, setCatSheetLoading] = useState(false)
 
   // Filters and search
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
-  const [selectedPeriod, setSelectedPeriod] = useState<Period>("all")
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>("this_month")
   const [categorySearchQuery, setCategorySearchQuery] = useState("")
 
   // Details sheet
@@ -171,43 +188,77 @@ export function ExpensesPage({
     avgAmount: 0,
     todayCount: 0,
     todayAmount: 0,
+    paidAmount: 0,
+    reliquatAmount: 0,
+    unpaidCount: 0,
+    maxAmount: null,
+    maxLabel: null,
+    maxCategory: null,
+    maxOn: null,
+    elapsedDays: null,
+    prevAmount: null,
   })
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([])
+  const [filteredTotal, setFilteredTotal] = useState(0)
   const [pageLoading, setPageLoading] = useState(false)
+
+  // Print report — a full, unpaged pull of whatever is currently filtered.
+  // Rendered off-screen (`hidden print:block`) so it never shows on screen;
+  // `window.print()` hands the choice of page range / printer / "Save as
+  // PDF" to the browser's own dialog instead of building any of that here.
+  const [printRows, setPrintRows] = useState<ExpenseExportRow[] | null>(null)
+  const [printLoading, setPrintLoading] = useState(false)
+  const [printDialogOpen, setPrintDialogOpen] = useState(false)
+  const [printPeriod, setPrintPeriod] = useState<Period>("all")
+
+  // Column sort. Category defaults ascending (alphabetical reads naturally
+  // A→Z); date and amount default descending (newest / biggest first).
+  const [sortColumn, setSortColumn] = useState<ExpensesSortColumn>("date")
+  const [sortDir, setSortDir] = useState<SortDirection>("desc")
+
+  function toggleSort(column: ExpensesSortColumn) {
+    if (sortColumn === column) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    } else {
+      setSortColumn(column)
+      setSortDir(column === "category" ? "asc" : "desc")
+    }
+  }
 
   // Typing in the search box should not fire a query per keystroke.
   const debouncedSearch = useDebounced(searchQuery, 300)
 
-  // Any filter change invalidates the current page number — staying on page 7
-  // of a result set that now has two pages shows an empty table.
+  // Any filter or sort change invalidates the current page number — staying
+  // on page 7 of a result set that now has two pages shows an empty table.
   useEffect(() => {
     setPage(1)
-  }, [debouncedSearch, selectedCategory, selectedPeriod])
+  }, [debouncedSearch, selectedCategory, sortColumn, sortDir])
 
   const loadPage = useCallback(async () => {
     if (!dbReady) return
     setPageLoading(true)
     try {
       const range = periodRange(selectedPeriod)
-      const res = await getExpensesPage({
+      const [tableRes, kpiRes] = await Promise.all([getExpensesPage({
         search: debouncedSearch,
         categoryId: selectedCategory === "all" ? null : selectedCategory,
-        from: range.from,
-        to: range.to,
         page,
         pageSize: DEFAULT_PAGE_SIZE,
-      })
-      setExpenses(res.rows)
-      setTotal(res.total)
-      setStats(res.stats)
-      setCategoryStats(res.categoryStats)
+        sort: sortColumn,
+        dir: sortDir,
+      }), getExpensesPage({ from: range.from, to: range.to, page: 1, pageSize: 1 })])
+      setExpenses(tableRes.rows)
+      setTotal(tableRes.total)
+      setFilteredTotal(tableRes.filteredTotal)
+      setStats(kpiRes.stats)
+      setCategoryStats(kpiRes.categoryStats)
     } catch (e) {
       console.error(e)
     } finally {
       setPageLoading(false)
       setLoading(false)
     }
-  }, [dbReady, debouncedSearch, selectedCategory, selectedPeriod, page])
+  }, [dbReady, debouncedSearch, selectedCategory, selectedPeriod, page, sortColumn, sortDir])
 
   async function loadCategories() {
     if (!dbReady) return
@@ -241,11 +292,24 @@ export function ExpensesPage({
     if (!cat || !dbReady) return
     let cancelled = false
     setCatSheetLoading(true)
-    getExpensesPage({ categoryId: cat.id, page: 1, pageSize: 200 })
+    // Same period the KPI panel above this list is scoped to (categoryStats
+    // is period-scoped) — fetching without it made the two disagree whenever
+    // a period was selected on the Dépenses tab before navigating here.
+    const range = periodRange(selectedPeriod)
+    getExpensesPage({
+      categoryId: cat.id,
+      from: range.from,
+      to: range.to,
+      page: 1,
+      pageSize: 200,
+    })
       .then((res) => {
         // Guard against a slow reply for a previously opened category landing
         // after the user has switched to another one.
-        if (!cancelled) setCatSheetExpenses(res.rows)
+        if (!cancelled) {
+          setCatSheetExpenses(res.rows)
+          setCatSheetTotal(res.total)
+        }
       })
       .catch((e) => console.error(e))
       .finally(() => {
@@ -254,7 +318,7 @@ export function ExpensesPage({
     return () => {
       cancelled = true
     }
-  }, [selectedCategoryDetails, dbReady])
+  }, [selectedCategoryDetails, selectedPeriod, dbReady])
 
   function resetExpenseForm() {
     setCategoryId(categories[0]?.id || "")
@@ -262,7 +326,9 @@ export function ExpensesPage({
     setNewCategoryDesc("")
     setAmount("")
     setDescription("")
-    setReceiptPhotoPath("")
+    setPayee("")
+    setPaymentMethod("")
+    setReceiptFile(null)
     setSpentAtDate(startOfToday())
     setFieldErrors({})
   }
@@ -310,6 +376,13 @@ export function ExpensesPage({
       errors.description = "Le motif ne doit pas dépasser 255 caractères."
     }
 
+    if (!payee.trim()) {
+      errors.payee = "Veuillez indiquer qui a reçu le paiement."
+    }
+    if (!paymentMethod) {
+      errors.paymentMethod = "Veuillez choisir le moyen de paiement."
+    }
+
     if (!spentAtDate || Number.isNaN(spentAtDate.getTime())) {
       errors.spentAt = "Veuillez saisir une date valide."
     }
@@ -330,12 +403,15 @@ export function ExpensesPage({
       }
 
       const dateObj = spentAtDate || new Date()
+      const uploadedReceiptKey = receiptFile ? await uploadFile(receiptFile, "receipt") : undefined
       await addExpense({
         categoryId: activeCategoryId,
         amount: numericAmt,
         description: description.trim(),
         spentAt: dateObj.toISOString(),
-        receiptPhotoPath: receiptPhotoPath.trim() || undefined,
+        receiptKey: uploadedReceiptKey,
+        payee: payee.trim(),
+        paymentMethod: paymentMethod as "cash" | "mobile_money" | "bank_transfer" | "other",
       })
 
       resetExpenseForm()
@@ -388,15 +464,56 @@ export function ExpensesPage({
   // `expenses_page`, so there is nothing left to filter here.
   const filteredExpenses = expenses
 
-  // KPIs come back with the page, scoped to the period (not to search or
-  // category) — the same scope this strip always described.
-  const expenseKpis = {
-    totalCount: stats.totalCount,
-    totalAmount: stats.totalAmount,
-    avgAmount: stats.avgAmount,
-    todayCount: stats.todayCount,
-    todayAmount: stats.todayAmount,
+  // "Au total" is only true when nothing is filtered — with a period
+  // selected these cards describe that period, not the whole ledger.
+  const isPeriodScoped = selectedPeriod !== "all"
+
+  // Percentage change vs. the same-length window immediately preceding the
+  // period (computed server-side so "27 days of July" is compared against
+  // "1–27 June", never a full month against a partial one). Omitted — not
+  // zero — when there is no prior window (all-time) or it was itself empty,
+  // since a percentage off a zero base is meaningless.
+  const periodComparison = useMemo(() => {
+    if (!isPeriodScoped || stats.prevAmount == null || stats.prevAmount === 0) return null
+    const pct = Math.round(((stats.totalAmount - stats.prevAmount) / stats.prevAmount) * 100)
+    return `${pct >= 0 ? "+" : ""}${pct} % vs période précédente`
+  }, [isPeriodScoped, stats.prevAmount, stats.totalAmount])
+
+  // The heaviest category by spend in the period — categoryStats is already
+  // in memory (it comes back with every page load), so this is pure
+  // rendering, no extra round trip.
+  const topCategory = useMemo(() => {
+    if (categoryStats.length === 0) return null
+    const top = categoryStats.reduce((max, c) => (c.total > max.total ? c : max))
+    if (top.total <= 0) return null
+    const name = categories.find((c) => c.id === top.categoryId)?.name ?? "Catégorie inconnue"
+    const pct = stats.totalAmount > 0 ? Math.round((top.total / stats.totalAmount) * 100) : 0
+    return { name, total: top.total, pct }
+  }, [categoryStats, categories, stats.totalAmount])
+
+  const printTotal = useMemo(
+    () => (printRows ?? []).reduce((sum, r) => sum + r.amount, 0),
+    [printRows]
+  )
+
+  const periodLabels: Record<Period, string> = {
+    all: "Toutes les périodes",
+    this_month: "Ce mois-ci",
+    this_quarter: "Ce trimestre",
+    this_year: `Cette année (${new Date().getFullYear()})`,
   }
+
+  // A plain-language description of the active filters, for the print
+  // header — the printout has no interactive controls to show them itself.
+  const printFilterDescription = [
+    periodLabels[printPeriod],
+    selectedCategory !== "all"
+      ? categories.find((c) => c.id === selectedCategory)?.name
+      : null,
+    debouncedSearch ? `recherche : "${debouncedSearch}"` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
 
   // Filtered categories list
   const filteredCategories = useMemo(() => {
@@ -421,6 +538,57 @@ export function ExpensesPage({
   function handleFilterByCategory(catId: string) {
     setSelectedCategory(catId)
     navigate("/expenses")
+  }
+
+  async function handlePrint() {
+    setPrintLoading(true)
+    try {
+      const range = periodRange(printPeriod)
+      const rows = await getExpensesExport({
+        search: debouncedSearch,
+        categoryId: selectedCategory === "all" ? null : selectedCategory,
+        from: range.from,
+        to: range.to,
+        sort: sortColumn,
+        dir: sortDir,
+      })
+      // window.print() reads the DOM synchronously — an ordinary setState
+      // only commits before the next paint, which is not guaranteed to have
+      // happened yet when the very next line runs. flushSync forces the
+      // commit to finish before this call returns, so the report is actually
+      // in the DOM by the time print() looks at it.
+      flushSync(() => setPrintRows(rows))
+      setPrintDialogOpen(false)
+      window.print()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setPrintLoading(false)
+    }
+  }
+
+  // A plain function returning JSX, not a component — using a capitalized
+  // component tag here would remount the header cell on every render (new
+  // function identity each time), which is unnecessary for something this
+  // simple and has no state of its own.
+  function sortHeader(column: ExpensesSortColumn, label: string, align?: "right") {
+    const active = sortColumn === column
+    const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(column)}
+        aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+        className={cn(
+          "inline-flex items-center gap-1 text-xs font-display font-semibold transition-colors hover:text-ink",
+          align === "right" && "flex-row-reverse",
+          active ? "text-ink" : "text-ink-soft"
+        )}
+      >
+        {label}
+        <Icon className="size-3" />
+      </button>
+    )
   }
 
   if (!dbReady || loading) {
@@ -449,7 +617,8 @@ export function ExpensesPage({
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-3 py-6 sm:px-4 sm:py-8 space-y-6">
+    <>
+    <div className="mx-auto max-w-5xl px-3 py-6 sm:px-4 sm:py-8 space-y-6 print:hidden">
       {/* Header & Main Navigation Actions */}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-ink/10 pb-5">
         <div>
@@ -467,15 +636,10 @@ export function ExpensesPage({
           {activeTab === "expenses" ? (
             <Button
               onClick={handleOpenCreateExpenseDialog}
-              className="group relative inline-flex items-center justify-start rounded-full p-0 h-10 w-10 hover:w-52 transition-all duration-500 ease-in-out shadow-2xs overflow-hidden shrink-0"
-              title="Enregistrer une dépense"
+              className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs shrink-0"
             >
-              <div className="flex h-10 w-10 items-center justify-center shrink-0">
-                <Plus className="size-4" />
-              </div>
-              <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-500 ease-in-out group-hover:max-w-xs group-hover:opacity-100 text-xs font-display font-semibold pr-4 -ml-1">
-                Enregistrer une dépense
-              </span>
+              <Plus className="size-4 shrink-0" />
+              Enregistrer une dépense
             </Button>
           ) : (
             <Button
@@ -497,35 +661,47 @@ export function ExpensesPage({
             <PeriodFilter value={selectedPeriod} onChange={setSelectedPeriod} className="w-50" />
           </div>
 
-          {/* KPI Cards Grid */}
+          {/* KPI Cards Grid — four cards, each answering a question a
+              non-technical reader actually has, not a number that happens to
+              be easy to compute. "Aujourd'hui" and "Dépense moyenne" are gone:
+              the first was blank most days, the second averaged a 2.25M
+              salary run against a 28k supply purchase and described neither. */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               variant="card"
-              label="Nombre de dépenses"
-              value={expenseKpis.totalCount}
-              icon={Receipt}
-              footer="Enregistrées au total"
-            />
-            <StatCard
-              variant="card"
-              label="Montant total"
-              value={formatMoney(expenseKpis.totalAmount)}
+              label="Dépensé sur la période"
+              value={formatMoney(stats.totalAmount)}
               icon={Wallet}
-              footer="Cumul des sorties de caisse"
+              footer={
+                <>
+                  {stats.totalCount} dépense{stats.totalCount > 1 ? "s" : ""}
+                  {periodComparison ? ` · ${periodComparison}` : ""}
+                </>
+              }
+            />
+            <StatCard variant="card" label="Transactions enregistrées" value={String(stats.totalCount)} icon={CheckCircle2} footer="Sorties de caisse déjà payées" />
+            <StatCard
+              variant="card"
+              label="Poste le plus lourd"
+              value={topCategory?.name ?? "—"}
+              valueClassName="text-lg sm:text-xl"
+              icon={PieChart}
+              footer={
+                topCategory
+                  ? `${formatMoney(topCategory.total)} · ${topCategory.pct} % du total`
+                  : "Aucune dépense sur la période"
+              }
             />
             <StatCard
               variant="card"
-              label="Dépense moyenne"
-              value={formatMoney(expenseKpis.avgAmount)}
-              icon={Calculator}
-              footer="Moyenne par opération"
-            />
-            <StatCard
-              variant="card"
-              label="Aujourd'hui"
-              value={formatMoney(expenseKpis.todayAmount)}
-              icon={Clock}
-              footer={`${expenseKpis.todayCount} dépense(s) aujourd'hui`}
+              label="Plus grosse dépense"
+              value={stats.maxAmount != null ? formatMoney(stats.maxAmount) : "—"}
+              icon={TrendingUp}
+              footer={
+                stats.maxAmount != null && stats.maxOn
+                  ? `${stats.maxCategory} · ${formatDay(stats.maxOn)}`
+                  : "Aucune dépense sur la période"
+              }
             />
           </div>
 
@@ -566,6 +742,18 @@ export function ExpensesPage({
                   Effacer filtre
                 </Button>
               )}
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPrintDialogOpen(true)}
+                disabled={printLoading}
+                className="h-9 text-xs border-ink/15 text-ink-soft hover:text-ink font-display gap-1.5"
+                title="Choisir la période du rapport"
+              >
+                <Printer className="size-3.5" />
+                {printLoading ? "Préparation..." : "Imprimer"}
+              </Button>
             </div>
           </div>
 
@@ -580,11 +768,19 @@ export function ExpensesPage({
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-ink/10">
-                  <TableHead className="text-xs font-display font-semibold text-ink-soft">Date</TableHead>
-                  <TableHead className="text-xs font-display font-semibold text-ink-soft">Catégorie</TableHead>
-                  <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Description / Motif</TableHead>
-                  <TableHead className="text-xs font-display font-semibold text-ink-soft hidden md:table-cell">Enregistré par</TableHead>
-                  <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Montant</TableHead>
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft">
+                    {sortHeader("date", "Date")}
+                  </TableHead>
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft">
+                    {sortHeader("category", "Catégorie")}
+                  </TableHead>
+                  {/* Description is the row's name — the last thing to drop.
+                      Enregistré par is the first, hidden until md instead. */}
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft">Description / Motif</TableHead>
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft hidden md:table-cell">Payé à / moyen</TableHead>
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">
+                    {sortHeader("amount", "Montant (F CFA)", "right")}
+                  </TableHead>
                   <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
@@ -592,21 +788,27 @@ export function ExpensesPage({
                 {filteredExpenses.map((e) => (
                   <TableRow key={e.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
                     <TableCell className="text-ink-soft text-xs whitespace-nowrap font-sans">
-                      {new Date(e.spent_at).toLocaleDateString()}
+                      {formatDay(e.spent_at)}
                     </TableCell>
                     <TableCell>
                       <Badge variant="neutral" className="text-xs font-normal whitespace-nowrap">
                         {e.category_name}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-display font-semibold text-xs text-ink max-w-[200px] truncate hidden sm:table-cell">
+                    <TableCell
+                      className="font-display font-semibold text-xs text-ink max-w-[160px] sm:max-w-[200px] truncate"
+                      title={e.description}
+                    >
                       {e.description}
                     </TableCell>
                     <TableCell className="text-xs text-ink-soft hidden md:table-cell whitespace-nowrap">
-                      {e.recorded_by_name || "Agent comptable"}
+                      <span className="font-medium text-ink">{e.payee || "Non renseigné"}</span>
+                      <span className="block text-2xs">{e.payment_method === "cash" ? "Espèces" : e.payment_method === "mobile_money" ? "Mobile money" : e.payment_method === "bank_transfer" ? "Virement" : e.payment_method === "other" ? "Autre" : "—"}</span>
                     </TableCell>
-                    <TableCell className="text-right font-display font-bold text-xs text-ink whitespace-nowrap">
-                      {formatMoney(e.amount)}
+                    <TableCell className="text-right whitespace-nowrap">
+                      <div className="font-display font-bold text-xs text-ink">
+                        {formatMoney(e.amount, "").trim()}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
@@ -628,7 +830,7 @@ export function ExpensesPage({
                       <div className="flex flex-col items-center justify-center space-y-1">
                         <p className="font-medium text-ink text-xs">Aucune dépense trouvée</p>
                         <p className="text-xs text-ink-soft">
-                          {searchQuery || selectedCategory !== "all"
+                          {searchQuery || selectedCategory !== "all" || selectedPeriod !== "all"
                             ? "Essayez de modifier vos filtres de recherche."
                             : "Cliquez sur 'Enregistrer une dépense' pour démarrer."}
                         </p>
@@ -637,6 +839,21 @@ export function ExpensesPage({
                   </TableRow>
                 )}
               </TableBody>
+              {filteredExpenses.length > 0 && (
+                <TableFooter>
+                  <TableRow className="border-t border-ink/10 bg-teal-100/20 hover:bg-teal-100/20">
+                    <TableCell colSpan={2} className="text-xs font-display font-semibold text-ink whitespace-nowrap">
+                      {total} dépense{total > 1 ? "s" : ""} filtrée{total > 1 ? "s" : ""}
+                    </TableCell>
+                    <TableCell />
+                    <TableCell className="hidden md:table-cell" />
+                    <TableCell className="text-right font-display font-bold text-xs text-ink whitespace-nowrap">
+                      {formatMoney(filteredTotal, "").trim()}
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                </TableFooter>
+              )}
             </Table>
             </div>
 
@@ -656,6 +873,13 @@ export function ExpensesPage({
       {/* ----------------- TAB 2: CATEGORIES VIEW ----------------- */}
       {activeTab === "categories" && (
         <div className="space-y-6">
+          {/* The period filter is the same state as the Dépenses tab — it was
+              silently still applied to these totals even when this control
+              wasn't rendered, so it must be visible here too. */}
+          <div className="flex justify-end items-center">
+            <PeriodFilter value={selectedPeriod} onChange={setSelectedPeriod} className="w-50" />
+          </div>
+
           {/* Search bar for categories */}
           <div className="flex items-center justify-between">
             <div className="relative flex-1 max-w-sm">
@@ -894,6 +1118,23 @@ export function ExpensesPage({
             </div>
 
             {/* Description / Motif */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="space-y-1.5">
+                <Label htmlFor="dialog-payee" className="text-xs font-display font-medium text-ink">Payé à</Label>
+                <Input id="dialog-payee" maxLength={255} value={payee} onChange={(e) => { setPayee(e.target.value); setFieldErrors((prev) => ({ ...prev, payee: undefined })) }} placeholder="ex. M. Kouamé / Quincaillerie Awa" className="text-xs border-ink/15 bg-paper text-ink" />
+                {fieldErrors.payee && <p className="text-xs text-negative font-medium">{fieldErrors.payee}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="dialog-payment-method" className="text-xs font-display font-medium text-ink">Moyen de paiement</Label>
+                <Select value={paymentMethod} onValueChange={(value) => { setPaymentMethod(value as typeof paymentMethod); setFieldErrors((prev) => ({ ...prev, paymentMethod: undefined })) }}>
+                  <SelectTrigger id="dialog-payment-method" className="h-10 w-full bg-paper border-ink/15 text-sm text-ink"><SelectValue placeholder="Choisir un moyen…" /></SelectTrigger>
+                  <SelectContent className="bg-paper border-ink/10"><SelectItem value="cash">Espèces</SelectItem><SelectItem value="mobile_money">Mobile money</SelectItem><SelectItem value="bank_transfer">Virement bancaire</SelectItem><SelectItem value="other">Autre</SelectItem></SelectContent>
+                </Select>
+                {fieldErrors.paymentMethod && <p className="text-xs text-negative font-medium">{fieldErrors.paymentMethod}</p>}
+              </div>
+            </div>
+
+            {/* Description / Motif */}
             <div className="space-y-1.5">
               <Label htmlFor="dialog-description" className="text-xs font-display font-medium text-ink">
                 Motif explicatif
@@ -915,19 +1156,20 @@ export function ExpensesPage({
               )}
             </div>
 
-            {/* Optional Receipt Field */}
+            {/* Optional receipt attachment */}
             <div className="space-y-1.5">
               <Label htmlFor="dialog-receipt" className="text-xs font-medium text-ink-soft">
-                N° de reçu (optionnel)
+                Pièce justificative (optionnel)
               </Label>
               <Input
                 id="dialog-receipt"
-                maxLength={255}
-                value={receiptPhotoPath}
-                onChange={(e) => setReceiptPhotoPath(e.target.value)}
-                placeholder="ex. REÇU-2026-0042"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
                 className="text-xs border-ink/15 bg-paper text-ink"
               />
+              <p className="text-2xs text-ink-soft">Photo ou PDF, 10 Mo maximum.</p>
+              {receiptFile && <p className="text-xs font-medium text-ink">{receiptFile.name}</p>}
             </div>
 
             {fieldErrors.general && (
@@ -954,6 +1196,23 @@ export function ExpensesPage({
       </Dialog>
 
       {/* ----------------- DIALOG 2: NEW CATEGORY MODAL ----------------- */}
+      <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
+        <DialogContent className="sm:max-w-sm p-6 space-y-4 bg-paper border border-ink/10">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-lg font-display font-bold text-ink">Imprimer les dépenses</DialogTitle>
+            <DialogDescription className="text-xs text-ink-soft">Choisissez la période à inclure dans le rapport.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="print-period" className="text-xs font-display font-medium text-ink">Période du rapport</Label>
+            <PeriodFilter value={printPeriod} onChange={setPrintPeriod} className="w-full" />
+          </div>
+          <DialogFooter className="pt-3 border-t border-ink/10 gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setPrintDialogOpen(false)} disabled={printLoading}>Annuler</Button>
+            <Button type="button" onClick={handlePrint} disabled={printLoading}>{printLoading ? "Préparation…" : "Imprimer le rapport"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
         <DialogContent
           className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10"
@@ -1069,7 +1328,7 @@ export function ExpensesPage({
                     <CalendarIcon className="size-4" /> Date d'effet
                   </span>
                   <span className="col-span-2 text-sm text-ink">
-                    {new Date(selectedExpense.spent_at).toLocaleString()}
+                    {formatDay(selectedExpense.spent_at)}
                   </span>
                 </div>
 
@@ -1089,20 +1348,26 @@ export function ExpensesPage({
                   </div>
                 </div>
 
-                {/* Attached Document Placeholder */}
+                {/* Optional uploaded receipt or invoice. */}
                 <div className="space-y-1.5 pt-2">
                   <span className="text-xs font-display font-semibold text-ink-soft flex items-center gap-1.5">
-                    <Paperclip className="size-4" /> Justificatif / Pièce jointe
+                    <Paperclip className="size-4" /> Pièce justificative
                   </span>
-                  <div className="border border-dashed border-ink/20 rounded-lg p-4 text-center bg-teal-100/10">
-                    <Paperclip className="size-5 mx-auto text-ink-soft mb-1.5" />
-                    <p className="text-xs font-medium text-ink-soft">
-                      Aucun fichier joint à cette dépense
-                    </p>
-                    <p className="text-2xs text-ink-soft/70 mt-0.5">
-                      Formats acceptés : PDF, PNG, JPG
-                    </p>
-                  </div>
+                  {selectedExpense.receipt_key ? (
+                    <div className="border border-ink/10 rounded-lg p-3 bg-teal-100/10">
+                      {publicUrl(selectedExpense.receipt_key) ? (
+                        <a href={publicUrl(selectedExpense.receipt_key)!} target="_blank" rel="noreferrer" className="text-sm font-display font-semibold text-teal-950 underline underline-offset-2">
+                          Ouvrir la pièce jointe
+                        </a>
+                      ) : <p className="text-xs text-ink-soft">Pièce jointe enregistrée, mais indisponible dans cette configuration.</p>}
+                    </div>
+                  ) : (
+                    <div className="border border-dashed border-ink/20 rounded-lg p-4 text-center bg-teal-100/10">
+                      <p className="text-xs font-medium text-ink-soft">
+                        Aucune pièce jointe
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Status Badges - ONLY for cancellation/reversals */}
@@ -1162,7 +1427,7 @@ export function ExpensesPage({
                 <div className="space-y-3 flex-1 overflow-y-auto">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-display font-semibold text-ink">
-                      Historique des Dépenses ({catSheetLoading ? "…" : catExpenses.length})
+                      Historique des Dépenses ({catSheetLoading ? "…" : catSheetTotal})
                     </h3>
                     <Button
                       variant="ghost"
@@ -1176,6 +1441,12 @@ export function ExpensesPage({
                       Voir sur Dépenses <ArrowRight className="size-4 ml-1" />
                     </Button>
                   </div>
+
+                  {catSheetTotal > 200 && (
+                    <p className="text-2xs text-ink-soft/70 -mt-1">
+                      Aperçu des 200 plus récentes.
+                    </p>
+                  )}
 
                   {catExpenses.length > 0 ? (
                     <div className="space-y-2">
@@ -1193,7 +1464,7 @@ export function ExpensesPage({
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-xs text-ink-soft">
-                            <span>{new Date(e.spent_at).toLocaleDateString()}</span>
+                            <span>{formatDay(e.spent_at)}</span>
                             <span>Par : {e.recorded_by_name || "Agent"}</span>
                           </div>
                         </div>
@@ -1212,5 +1483,51 @@ export function ExpensesPage({
       </Sheet>
 
     </div>
+
+    {/* ----------------- PRINT-ONLY REPORT -----------------
+        Invisible on screen (`hidden print:block`); this is what actually
+        prints. The interactive page above is `print:hidden`, and the app
+        shell hides its own sidebar/header the same way — see AppShell.
+        Colours are hardcoded black-on-white rather than the `text-ink` /
+        `border-ink` theme tokens: those flip to near-white text in dark mode
+        (`--color-ink` is `#e2e8f0` there), which would print as invisible
+        text on white paper if generated while the app happened to be in
+        dark mode. A report has no theme — it's always paper-colored. */}
+    <div className="hidden print:block p-6" style={{ color: "#000", background: "#fff" }}>
+      <h1 className="font-display text-lg font-bold">Rapport des dépenses — Wagnon</h1>
+      <p className="text-xs mt-1" style={{ color: "#475569" }}>
+        {printFilterDescription} · Généré le {formatDay(new Date().toISOString())}
+      </p>
+
+      <table className="w-full mt-4 text-xs border-collapse">
+        <thead>
+          <tr className="text-left" style={{ borderBottom: "1px solid #94a3b8" }}>
+            <th className="py-1 pr-2 font-semibold">Date</th>
+            <th className="py-1 pr-2 font-semibold">Catégorie</th>
+            <th className="py-1 pr-2 font-semibold">Motif</th>
+            <th className="py-1 pr-2 font-semibold text-right">Montant</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(printRows ?? []).map((r, i) => (
+            <tr key={i} className="break-inside-avoid" style={{ borderBottom: "1px solid #e2e8f0" }}>
+              <td className="py-1 pr-2 whitespace-nowrap">{formatDay(r.spent_at)}</td>
+              <td className="py-1 pr-2">{r.category_name}</td>
+              <td className="py-1 pr-2">{r.description}</td>
+              <td className="py-1 pr-2 text-right whitespace-nowrap">{formatMoney(r.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="font-display font-semibold" style={{ borderTop: "2px solid #475569" }}>
+            <td colSpan={3} className="py-1.5 pr-2">
+              {(printRows ?? []).length} dépense{(printRows ?? []).length > 1 ? "s" : ""}
+            </td>
+            <td className="py-1.5 pr-2 text-right">{formatMoney(printTotal)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    </>
   )
 }

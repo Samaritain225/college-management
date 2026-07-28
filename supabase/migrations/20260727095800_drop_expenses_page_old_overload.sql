@@ -1,0 +1,12 @@
+-- The previous migration's `create or replace` added p_sort/p_dir as new
+-- trailing parameters, which Postgres treats as a distinct overload rather
+-- than a replacement — functions are identified by name *and* argument
+-- types. That left two `expenses_page` functions live at once, and any call
+-- naming exactly the original 7 parameters became ambiguous ("function
+-- expenses_page(...) is not unique"), because both overloads match once
+-- Postgres fills in p_sort/p_dir's defaults on the new one.
+--
+-- The 7-arg overload is superseded, never intentionally dual-shipped, and
+-- has no caller that couldn't call the 9-arg version instead (defaults make
+-- p_sort/p_dir optional). Drop it.
+drop function if exists public.expenses_page(uuid, text, uuid, date, date, int, int);

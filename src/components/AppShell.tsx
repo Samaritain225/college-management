@@ -122,6 +122,15 @@ export function AppShell() {
     <TooltipProvider>
       <PageTitleProvider>
         <SidebarProvider
+          // `h-svh overflow-hidden` on this wrapper (from the vendored
+          // shadcn primitive, `sidebar.tsx`) clips everything below one
+          // viewport's height on screen — the app's own scroll areas handle
+          // scrolling instead. Printing inherited that clip: a print-only
+          // report taller than one screen was cut off and squeezed to fit,
+          // which is why it came out tiny. Print needs the opposite —
+          // natural height, nothing clipped, so the browser can paginate
+          // across as many physical pages as the content actually needs.
+          className="print:h-auto print:overflow-visible print:w-auto"
           style={
             {
               // 12.5rem, down from 14rem. The rail was wider than its longest
@@ -132,10 +141,18 @@ export function AppShell() {
             } as React.CSSProperties
           }
         >
-          <AppSidebar variant="inset" userRole={user?.role} />
+          {/* Chrome a page never wants on paper. A page that renders its own
+              print-only view (e.g. ExpensesPage's report) hides the rest of
+              itself with `print:hidden` too — this is the shell's half of
+              that contract. */}
+          <div className="print:hidden">
+            <AppSidebar variant="inset" userRole={user?.role} />
+          </div>
           <SidebarInset className="border-0 bg-paper md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:border-0 md:peer-data-[variant=inset]:shadow-none">
-            <Header />
-            <main className="flex-1 overflow-y-auto mx-2 mb-2 sm:mx-4 sm:mb-4 md:mx-6 md:mb-6 border border-ink/10 bg-paper rounded-lg sm:rounded-xl shadow-xs">
+            <div className="print:hidden">
+              <Header />
+            </div>
+            <main className="flex-1 overflow-y-auto print:overflow-visible mx-2 mb-2 sm:mx-4 sm:mb-4 md:mx-6 md:mb-6 print:m-0 border border-ink/10 print:border-0 bg-paper rounded-lg sm:rounded-xl shadow-xs print:shadow-none">
               <div className="h-full">
                 {/* Keyed by path so a crash on one screen does not persist its
                     error state onto the next one you navigate to. */}

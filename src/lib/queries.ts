@@ -217,13 +217,24 @@ export interface Expense {
   recorded_by: string
   recorded_by_name: string | null
   reverses_expense_id: string | null
+  /** Reference typed into the "N° de reçu" field at creation, or null. There
+   *  is no file upload yet — this is a text reference, not an attachment. */
+  receipt_key: string | null
+  payee: string | null
+  payment_method: PaymentMethod | null
+  /** Only populated by `getExpensesPage` (the RPC joins `expense_payments`).
+   *  `listExpenses` below leaves both at 0 — nothing reads them from there. */
+  paid: number
+  reliquat: number
 }
+
+export type PaymentMethod = "cash" | "mobile_money" | "bank_transfer" | "other"
 
 export async function listExpenses(): Promise<Expense[]> {
   const res = await supabase
     .from("expenses")
     .select(
-      "id, category_id, total_amount, label, occurred_on, recorded_by, reverses_expense_id, expense_categories(name), profiles(full_name)"
+      "id, category_id, total_amount, label, occurred_on, recorded_by, reverses_expense_id, receipt_key, payee, payment_method, expense_categories(name), profiles(full_name)"
     )
     .eq("college_id", COLLEGE_ID)
     .order("occurred_on", { ascending: false })
@@ -239,6 +250,11 @@ export async function listExpenses(): Promise<Expense[]> {
     recorded_by: e.recorded_by,
     recorded_by_name: e.profiles?.full_name ?? null,
     reverses_expense_id: e.reverses_expense_id,
+    receipt_key: e.receipt_key ?? null,
+    payee: e.payee ?? null,
+    payment_method: e.payment_method ?? null,
+    paid: 0,
+    reliquat: 0,
   }))
 }
 
@@ -248,6 +264,26 @@ export interface ExpenseStats {
   avgAmount: number
   todayCount: number
   todayAmount: number
+  /** Sum of `expense_payments` against expenses in the period. */
+  paidAmount: number
+  /** `totalAmount - paidAmount` for the period — what is still owed. */
+  reliquatAmount: number
+  /** Expenses in the period with a positive reliquat. */
+  unpaidCount: number
+  /** The single largest expense in the period, or null if the period is empty. */
+  maxAmount: number | null
+  maxLabel: string | null
+  maxCategory: string | null
+  maxOn: string | null
+  /**
+   * Length in days of the requested period, clamped to "so far" when the
+   * period extends into the future (a mid-month filter). Null when the
+   * period is "Toutes les périodes" — there is no window to compare against.
+   */
+  elapsedDays: number | null
+  /** Total of the same-length window immediately preceding the period. Null
+   *  under the same condition as `elapsedDays`. */
+  prevAmount: number | null
 }
 
 export interface CategoryStat {
@@ -260,6 +296,10 @@ export interface ExpensesPageResult {
   rows: Expense[]
   /** Rows matching the filters across every page, for the pager. */
   total: number
+  /** Sum over every filter, including search and category — unlike `stats`,
+   *  this narrows with the search box, so a filtered table can show a
+   *  matching total row. */
+  filteredTotal: number
   /**
    * KPI strip and per-category totals. Scoped to the date range only, NOT to
    * the search or category filter — that is what the page showed before, and
@@ -270,6 +310,9 @@ export interface ExpensesPageResult {
   categoryStats: CategoryStat[]
 }
 
+export type ExpensesSortColumn = "date" | "amount" | "category"
+export type SortDirection = "asc" | "desc"
+
 export interface ExpensesPageQuery {
   /** Matched against the expense label and the category name, case-insensitive
    *  substring. Blank or whitespace-only means "no filter". */
@@ -279,6 +322,8 @@ export interface ExpensesPageQuery {
   to?: string | null
   page?: number
   pageSize?: number
+  sort?: ExpensesSortColumn
+  dir?: SortDirection
 }
 
 /**
@@ -303,25 +348,43 @@ export async function getExpensesPage(
     p_to: q.to ?? null,
     p_limit: pageSize,
     p_offset: (page - 1) * pageSize,
+    p_sort: q.sort ?? "date",
+    p_dir: q.dir ?? "desc",
   })
 
   const d = unwrap(res) as any
+  const pageRows = d.rows ?? []
+  const ids = pageRows.map((e: any) => e.id)
+  const details = ids.length
+    ? unwrap(await supabase.from("expenses").select("id, payee, payment_method").in("id", ids)) as any[]
+    : []
+  const cashDetails = new Map(details.map((e) => [e.id, e]))
   const s = d.stats ?? {}
   return {
     total: Number(d.total ?? 0),
+    filteredTotal: Number(d.filtered_total ?? 0),
     stats: {
       totalCount: Number(s.total_count ?? 0),
       totalAmount: Number(s.total_amount ?? 0),
       avgAmount: Number(s.avg_amount ?? 0),
       todayCount: Number(s.today_count ?? 0),
       todayAmount: Number(s.today_amount ?? 0),
+      paidAmount: Number(s.paid_amount ?? 0),
+      reliquatAmount: Number(s.reliquat_amount ?? 0),
+      unpaidCount: Number(s.unpaid_count ?? 0),
+      maxAmount: s.max_amount != null ? Number(s.max_amount) : null,
+      maxLabel: s.max_label ?? null,
+      maxCategory: s.max_category ?? null,
+      maxOn: s.max_on ?? null,
+      elapsedDays: s.elapsed_days != null ? Number(s.elapsed_days) : null,
+      prevAmount: s.prev_amount != null ? Number(s.prev_amount) : null,
     },
     categoryStats: (d.category_stats ?? []).map((c: any) => ({
       categoryId: c.category_id,
       total: Number(c.total),
       count: Number(c.count),
     })),
-    rows: (d.rows ?? []).map((e: any) => ({
+    rows: pageRows.map((e: any) => ({
       id: e.id,
       category_id: e.category_id,
       category_name: e.category_name,
@@ -331,8 +394,77 @@ export async function getExpensesPage(
       recorded_by: e.recorded_by,
       recorded_by_name: e.recorded_by_name,
       reverses_expense_id: e.reverses_expense_id,
+      receipt_key: e.receipt_key ?? null,
+      payee: cashDetails.get(e.id)?.payee ?? null,
+      payment_method: cashDetails.get(e.id)?.payment_method ?? null,
+      paid: Number(e.paid ?? 0),
+      reliquat: Number(e.reliquat ?? 0),
     })),
   }
+}
+
+export interface ExpenseExportRow {
+  spent_at: string
+  category_name: string
+  description: string
+  amount: number
+  paid: number
+  reliquat: number
+  recorded_by_name: string | null
+  receipt_key: string | null
+}
+
+/**
+ * The same filter/sort surface as `getExpensesPage`, but the full matching
+ * set — no page cap. For the print report only: a paged function's row limit
+ * is a real safety property for the normal grid, and a full unpaged pull is a
+ * rare, explicit, user-initiated action, so it gets its own RPC
+ * (`expenses_export`) rather than a raised limit on the paged one.
+ */
+// PostgREST caps a table-returning RPC's response at its default row limit
+// (1000) regardless of how many rows actually match — there is no server-side
+// signal that the result was truncated, it just silently stops at row 1000.
+// Measured against this ledger (1,802 rows): an unfiltered export came back
+// as exactly 1000 rows with no error. `.range()` works on an RPC call the
+// same way it does on a table select, so the fix is to page through in
+// chunks until a chunk comes back short of a full page.
+const EXPORT_CHUNK_SIZE = 1000
+
+export async function getExpensesExport(
+  q: Omit<ExpensesPageQuery, "page" | "pageSize"> = {}
+): Promise<ExpenseExportRow[]> {
+  const args = {
+    p_college_id: COLLEGE_ID,
+    p_search: q.search ?? null,
+    p_category_id: q.categoryId ?? null,
+    p_from: q.from ?? null,
+    p_to: q.to ?? null,
+    p_sort: q.sort ?? "date",
+    p_dir: q.dir ?? "desc",
+  }
+
+  const all: any[] = []
+  let offset = 0
+  for (;;) {
+    const res = await supabase
+      .rpc("expenses_export", args)
+      .range(offset, offset + EXPORT_CHUNK_SIZE - 1)
+    const chunk = unwrap(res) as any[]
+    all.push(...chunk)
+    if (chunk.length < EXPORT_CHUNK_SIZE) break
+    offset += EXPORT_CHUNK_SIZE
+  }
+
+  return all.map((r) => ({
+    spent_at: r.occurred_on,
+    category_name: r.category_name ?? "Catégorie inconnue",
+    description: r.description,
+    amount: Number(r.amount),
+    paid: Number(r.paid ?? 0),
+    reliquat: Number(r.reliquat ?? 0),
+    recorded_by_name: r.recorded_by_name ?? null,
+    receipt_key: r.receipt_key ?? null,
+  }))
 }
 
 export async function addExpense(input: {
@@ -340,7 +472,9 @@ export async function addExpense(input: {
   amount: number
   description: string
   spentAt: string
-  receiptPhotoPath?: string | null
+  receiptKey?: string | null
+  payee: string
+  paymentMethod: PaymentMethod
 }): Promise<void> {
   const { data: auth } = await supabase.auth.getUser()
   if (!auth.user) throw new Error("Not authenticated")
@@ -352,7 +486,9 @@ export async function addExpense(input: {
     total_amount: input.amount,
     occurred_on: input.spentAt.slice(0, 10),
     date_precision: "day",
-    receipt_key: input.receiptPhotoPath || null,
+    receipt_key: input.receiptKey || null,
+    payee: input.payee,
+    payment_method: input.paymentMethod,
     recorded_by: auth.user.id,
   })
   unwrap(res)

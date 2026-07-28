@@ -22,3 +22,21 @@ export function formatMoney(amount: number, currency = "F\u00a0CFA") {
   const formatted = rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0")
   return `${formatted} ${currency}`
 }
+
+const dayFormatter = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+})
+
+/**
+ * `occurred_on` is a plain date, not a timestamp \u2014 formatting it with the
+ * browser's locale put "7/25/2026" inside an otherwise all-French app on an
+ * English-configured machine, and `toLocaleString()` appended a fabricated
+ * "00:00:00" that read as a data-entry fault. Always fr-FR, always day only.
+ */
+export function formatDay(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return dayFormatter.format(d)
+}
