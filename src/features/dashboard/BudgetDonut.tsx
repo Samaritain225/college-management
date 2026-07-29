@@ -136,8 +136,27 @@ export function BudgetDonut({ totalPool, spentByCategory }: BudgetDonutProps) {
               strokeWidth={hovered === i ? STROKE + 4 : STROKE}
               strokeDasharray={`${arcs[i].dash} ${CIRC - arcs[i].dash}`}
               strokeDashoffset={arcs[i].offset}
-              className="transition-all duration-150 cursor-pointer"
+              className="transition-all duration-150 pointer-events-none"
               opacity={hovered === null || hovered === i ? 1 : 0.35}
+            />
+          ))}
+          {/* Hit targets, kept separate from the visual arcs above: a stable
+              geometry that never changes size on hover. The visible arc grows
+              by STROKE+4 to show which slice is active, and if that same
+              element owned the mouse events, the growth would shift the
+              hit area under the cursor and flip hover between neighbours. */}
+          {slices.map((s, i) => (
+            <circle
+              key={`${s.name}-hit`}
+              cx="90"
+              cy="90"
+              r={RADIUS}
+              fill="transparent"
+              stroke="transparent"
+              strokeWidth={STROKE + 4}
+              strokeDasharray={`${arcs[i].dash} ${CIRC - arcs[i].dash}`}
+              strokeDashoffset={arcs[i].offset}
+              className="cursor-pointer"
               onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered(null)}
             >
