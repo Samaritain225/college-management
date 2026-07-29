@@ -152,7 +152,15 @@ export function AppShell() {
             <div className="print:hidden">
               <Header />
             </div>
-            <main className="flex-1 overflow-y-auto print:overflow-visible mx-2 mb-2 sm:mx-4 sm:mb-4 md:mx-6 md:mb-6 print:m-0 border border-ink/10 print:border-0 bg-paper rounded-lg sm:rounded-xl shadow-xs print:shadow-none">
+            {/* md:ml-0 + md:rounded-l-none: flush against the sidebar at
+                desktop widths, where it's permanently docked — margin and
+                rounded corners on all four sides read as two separate boxes
+                with a gap between them instead of one surface split by a
+                shared edge. Mobile/tablet keep the symmetric floating card
+                (mx-2/sm:mx-4, all corners rounded): the sidebar there is an
+                overlay, not a permanent neighbour, so there's nothing to be
+                flush against. */}
+            <main className="flex-1 overflow-y-auto print:overflow-visible mx-2 mb-2 sm:mx-4 sm:mb-4 md:ml-0 md:mr-6 md:mb-6 print:m-0 border border-ink/10 print:border-0 bg-paper rounded-lg sm:rounded-xl md:rounded-l-none shadow-xs print:shadow-none">
               <div className="h-full">
                 {/* Keyed by path so a crash on one screen does not persist its
                     error state onto the next one you navigate to. */}
