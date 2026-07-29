@@ -8,6 +8,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 import { ExternalLink, FileQuestion } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -31,18 +32,43 @@ function attachmentName(objectKey: string): string {
   return objectKey.split("/").pop() || "Pièce justificative"
 }
 
-function PreviewUnavailable() {
+function LoadingStatus() {
+  return (
+    <span role="status" aria-live="polite" className="sr-only">
+      Chargement de l'aperçu…
+    </span>
+  )
+}
+
+function PreviewUnavailable({
+  compact = false,
+  viewportBounded = false,
+}: {
+  compact?: boolean
+  viewportBounded?: boolean
+}) {
   return (
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-56 w-full flex-col items-center justify-center gap-2 p-6 text-center sm:min-h-72"
+      className={cn(
+        "flex w-full items-center justify-center gap-3 p-4",
+        compact ? "text-left" : "flex-col p-6 text-center",
+        !compact && (viewportBounded ? "h-full" : "min-h-56 sm:min-h-72"),
+      )}
     >
-      <FileQuestion aria-hidden="true" className="size-7 text-ink-soft" />
-      <p className="text-sm font-display font-semibold text-ink">Aperçu indisponible</p>
-      <p className="max-w-xs text-xs text-ink-soft">
-        Ouvrez le fichier original pour consulter cette pièce justificative.
-      </p>
+      <FileQuestion
+        aria-hidden="true"
+        className={cn("shrink-0 text-ink-soft", compact ? "size-5" : "size-7")}
+      />
+      <div className={cn(!compact && "contents")}>
+        <p className="text-sm font-display font-semibold text-ink">
+          {compact ? "Format non pris en charge" : "Aperçu indisponible"}
+        </p>
+        <p className="max-w-xs text-xs text-ink-soft">
+          Ouvrez le fichier original pour consulter cette pièce justificative.
+        </p>
+      </div>
     </div>
   )
 }
@@ -78,7 +104,10 @@ export function AttachmentPreview({ url, objectKey, alt }: AttachmentPreviewProp
               className="relative flex min-h-56 w-full touch-manipulation items-center justify-center overflow-hidden rounded-lg border border-ink/10 bg-teal-100/10 outline-none transition-colors hover:border-teal-950/30 hover:bg-teal-100/20 focus-visible:ring-2 focus-visible:ring-teal-950 focus-visible:ring-offset-2 disabled:cursor-default disabled:hover:border-ink/10 disabled:hover:bg-teal-100/10 sm:min-h-72"
             >
               {previewState === "loading" && (
-                <Skeleton className="absolute inset-0 size-full rounded-none" />
+                <>
+                  <Skeleton className="absolute inset-0 size-full rounded-none" />
+                  <LoadingStatus />
+                </>
               )}
               {previewState === "error" ? (
                 <PreviewUnavailable />
@@ -117,29 +146,37 @@ export function AttachmentPreview({ url, objectKey, alt }: AttachmentPreviewProp
           </DialogContent>
         </Dialog>
       ) : kind === "pdf" ? (
-        <div className="relative min-h-80 overflow-hidden rounded-lg border border-ink/10 bg-teal-100/10 sm:min-h-96">
-          {previewState === "loading" && (
-            <Skeleton className="absolute inset-0 size-full rounded-none" />
-          )}
-          <object
-            data={url}
-            type="application/pdf"
-            aria-label={alt}
-            onLoad={() => setPreviewState("ready")}
-            onError={() => setPreviewState("error")}
-            className="h-[48svh] min-h-80 w-full sm:min-h-96"
-          >
-            <PreviewUnavailable />
-          </object>
-          {previewState === "error" && (
-            <div className="absolute inset-0 bg-paper">
-              <PreviewUnavailable />
-            </div>
-          )}
+        <div className="flex h-[48svh] flex-col overflow-hidden rounded-lg border border-ink/10 bg-teal-100/10">
+          <div className="relative min-h-0 flex-1">
+            {previewState === "loading" && (
+              <>
+                <Skeleton className="absolute inset-0 z-0 size-full rounded-none" />
+                <LoadingStatus />
+              </>
+            )}
+            <object
+              data={url}
+              type="application/pdf"
+              aria-label={alt}
+              onLoad={() => setPreviewState("ready")}
+              onError={() => setPreviewState("error")}
+              className="relative z-10 h-full w-full"
+            >
+              <PreviewUnavailable viewportBounded />
+            </object>
+            {previewState === "error" && (
+              <div className="absolute inset-0 z-20 bg-paper">
+                <PreviewUnavailable viewportBounded />
+              </div>
+            )}
+          </div>
+          <p className="shrink-0 border-t border-ink/10 bg-paper px-3 py-2 text-xs text-ink-soft">
+            Si l'aperçu PDF ne s'affiche pas, ouvrez le fichier original ci-dessous.
+          </p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-ink/10 bg-teal-100/10">
-          <PreviewUnavailable />
+          <PreviewUnavailable compact />
         </div>
       )}
 
