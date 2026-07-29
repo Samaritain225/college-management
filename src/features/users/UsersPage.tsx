@@ -67,6 +67,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { ActivityFeed } from "@/features/activity/ActivityFeed"
+import { relativeTime } from "@/features/activity/formatActivity"
 import { useNavigate, useParams } from "react-router-dom"
 import { useSetPageTitle } from "@/lib/pageTitle"
 import { TablePager } from "@/components/TablePager"
@@ -212,6 +213,10 @@ export function UsersPage({
 }: UsersPageProps) {
   const { user: me } = useAuth()
   const isAdmin = me?.role === "admin" || me?.role === "super_admin"
+  // The archive of soft-deleted accounts is super_admin only — an admin
+  // scoped to one college has no business seeing a record of who erased
+  // whom, only super_admin does that kind of cross-cutting oversight.
+  const iAmSuperAdmin = me?.role === "super_admin"
 
   const [users, setUsers] = useState<ApiUser[]>([])
   const [roles, setRoles] = useState<ApiRole[]>([])
@@ -261,6 +266,10 @@ export function UsersPage({
   const editRoleRef = useRef<HTMLButtonElement>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  // super_admin only — a separate view rather than a filter pill, since a
+  // soft-deleted account isn't a status like the others, it's a different
+  // kind of row: no actions, no edit, nothing but a record of what happened.
+  const [showArchive, setShowArchive] = useState(false)
 
   // Live email format check — flags an invalid address once typing pauses,
   // instead of waiting for submit to be the first time the user hears about
@@ -525,23 +534,31 @@ export function UsersPage({
     if (!detailUser) return
     setActionLoading(true)
     try {
-      await deleteAdminUser(detailUser.id)
-      toast.success("Utilisateur supprimé définitivement.")
+      const { data } = await deleteAdminUser(detailUser.id)
+      // The server decides which happened — never assume "definitive" the
+      // way the old copy always did, since a referenced account is now
+      // banned and tombstoned rather than erased.
+      toast.success(
+        data.mode === "hard"
+          ? "Utilisateur supprimé définitivement."
+          : "Compte supprimé — l'historique associé a été conservé, l'accès est révoqué."
+      )
       setDeleteDialogOpen(false)
       navigate("/users")
       await loadData()
     } catch (err) {
-      // The server's message already explains why (a related-records count)
-      // and suggests deactivating instead — worth showing as-is rather than
-      // a generic fallback.
       toast.error(err instanceof Error ? err.message : "Une erreur est survenue.")
     } finally {
       setActionLoading(false)
     }
   }
 
-  // Filter logic
-  const filteredUsers = users.filter((u) => {
+  // Filter logic — soft-deleted accounts never appear in the everyday list,
+  // no matter what's searched or selected. They live only in the archive.
+  const activeUsers = users.filter((u) => !u.deletedAt)
+  const deletedUsers = users.filter((u) => u.deletedAt)
+
+  const filteredUsers = activeUsers.filter((u) => {
     const matchesSearch =
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -556,12 +573,54 @@ export function UsersPage({
   // One profile today, a handful later — paged in memory over the already
   // fetched list, like the other small tables.
   const userPaging = usePagedRows(filteredUsers)
+  const archivePaging = usePagedRows(deletedUsers)
 
-  const totalActive = users.filter((u) => u.isActive).length
+  const totalActive = activeUsers.filter((u) => u.isActive).length
 
   // ---------------------------------------------------------------------------
   // Render sub-page: User Details View
   // ---------------------------------------------------------------------------
+
+  if (selectedUserId && detailUser?.deletedAt) {
+    // Reachable only by a direct link — the list itself never links to a
+    // soft-deleted row. No edit form, no actions: everything about this
+    // account that could still change already has (banned, tombstoned).
+    // What's left is a record, not a profile to manage.
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-8">
+        <Button
+          variant="ghost"
+          onClick={() => navigate("/users")}
+          className="mb-6 flex items-center gap-2 hover:bg-teal-100/50 text-ink-soft hover:text-ink font-display"
+        >
+          <ArrowLeft className="size-4" />
+          Retour à la liste
+        </Button>
+        <Card className="border border-ink/10 bg-paper">
+          <CardHeader className="border-b border-ink/10 pb-4">
+            <CardTitle className="text-ink font-semibold text-base flex items-center gap-2">
+              <Trash2 className="size-4 text-ink-soft" />
+              {detailUser.name}
+              <Badge variant="negative">Compte supprimé</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-2 text-xs text-ink-soft">
+            <p>Ancien email : {detailUser.email || "—"}</p>
+            <p>Rôle : {getRoleLabel(detailUser.roleId)}</p>
+            <p>
+              Supprimé le{" "}
+              {detailUser.deletedAt ? new Date(detailUser.deletedAt).toLocaleString() : "—"}
+              {detailUser.deletedByName ? ` par ${detailUser.deletedByName}` : ""}.
+            </p>
+            <p className="pt-2 border-t border-ink/10">
+              L'accès est révoqué et la fiche n'est plus modifiable. Son historique financier
+              reste attribué à ce nom dans les dépenses, activités et investissements existants.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   if (selectedUserId && detailUser) {
     const isSuperAdmin = detailUser.roleId === "super_admin"
@@ -878,9 +937,11 @@ export function UsersPage({
                 Supprimer {detailUser.name} ?
               </DialogTitle>
               <DialogDescription className="text-xs text-ink-soft">
-                Cette action est définitive et ne peut pas être annulée. Le compte et son accès
-                seront supprimés. Si ce compte a déjà enregistré des dépenses, des investissements
-                ou une activité quelconque, la suppression sera refusée — désactivez-le à la place.
+                Si ce compte n'a jamais enregistré de dépense, d'investissement ni d'activité, il
+                sera effacé définitivement. S'il en a, il sera plutôt désactivé de façon
+                permanente et son email libéré pour être réutilisé — sa fiche reste visible dans
+                l'historique financier, mais l'accès et toute action sont révoqués. Dans les deux
+                cas, cette action ne peut pas être annulée.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="pt-3 border-t border-ink/10 gap-2 sm:gap-0">
@@ -940,6 +1001,87 @@ export function UsersPage({
     )
   }
 
+  // ---------------------------------------------------------------------------
+  // Render sub-page: soft-delete archive (super_admin only)
+  // ---------------------------------------------------------------------------
+
+  if (showArchive && iAmSuperAdmin) {
+    return (
+      <div className="mx-auto max-w-5xl px-3 py-6 sm:px-6 sm:py-8">
+        <Button
+          variant="ghost"
+          onClick={() => setShowArchive(false)}
+          className="mb-6 flex items-center gap-2 hover:bg-teal-100/50 text-ink-soft hover:text-ink font-display"
+        >
+          <ArrowLeft className="size-4" />
+          Retour à la liste
+        </Button>
+
+        <header className="mb-6 space-y-1">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-ink">
+            Comptes supprimés
+          </h1>
+          <p className="text-sm text-ink-soft">
+            {deletedUsers.length} {deletedUsers.length > 1 ? "comptes" : "compte"} — l'historique
+            financier associé (dépenses, activité, investissements) empêchait une suppression
+            définitive, donc l'accès a été révoqué sans effacer la fiche.
+          </p>
+        </header>
+
+        <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-ink/10">
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft">Nom</TableHead>
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Ancien email</TableHead>
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft">Rôle</TableHead>
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft">Supprimé le</TableHead>
+                  <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Par</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {archivePaging.pageRows.map((user) => (
+                  <TableRow key={user.id} className="border-b border-ink/10 last:border-0">
+                    <TableCell className="font-semibold text-ink text-sm">{user.name}</TableCell>
+                    <TableCell className="text-ink-soft text-xs hidden sm:table-cell whitespace-nowrap">
+                      {user.email || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={roleBadgeVariant(user.roleId)}>{getRoleLabel(user.roleId)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-ink-soft text-xs whitespace-nowrap">
+                      {user.deletedAt ? new Date(user.deletedAt).toLocaleString() : "—"}
+                    </TableCell>
+                    <TableCell className="text-ink-soft text-xs hidden sm:table-cell">
+                      {user.deletedByName || "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {deletedUsers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center h-24 text-ink-soft">
+                      <p className="text-sm font-medium text-ink">Aucun compte supprimé.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="px-4 pb-3">
+            <TablePager
+              page={archivePaging.page}
+              pageSize={archivePaging.pageSize}
+              total={archivePaging.total}
+              onPageChange={archivePaging.setPage}
+              itemLabel="comptes"
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-3 py-6 sm:px-6 sm:py-8">
       <header className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -948,13 +1090,25 @@ export function UsersPage({
             Utilisateurs &amp; Permissions
           </h1>
           <p className="text-sm text-ink-soft">
-            {users.length} {users.length > 1 ? "membres" : "membre"} enregistrés · {totalActive} actifs
+            {activeUsers.length} {activeUsers.length > 1 ? "membres" : "membre"} enregistrés · {totalActive} actifs
           </p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="flex items-center gap-2 font-display">
-          <UserPlus className="size-4" />
-          Nouvel utilisateur
-        </Button>
+        <div className="flex items-center gap-2">
+          {iAmSuperAdmin && deletedUsers.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => setShowArchive(true)}
+              className="flex items-center gap-2 font-display text-ink-soft"
+            >
+              <Trash2 className="size-4" />
+              Comptes supprimés ({deletedUsers.length})
+            </Button>
+          )}
+          <Button onClick={() => setShowForm(true)} className="flex items-center gap-2 font-display">
+            <UserPlus className="size-4" />
+            Nouvel utilisateur
+          </Button>
+        </div>
       </header>
 
       {/* Create dialog */}
@@ -1177,6 +1331,7 @@ export function UsersPage({
               <TableHead className="text-xs font-display font-semibold text-ink-soft hidden md:table-cell">Téléphone</TableHead>
               <TableHead className="text-xs font-display font-semibold text-ink-soft">Rôle</TableHead>
               <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Statut</TableHead>
+              <TableHead className="text-xs font-display font-semibold text-ink-soft hidden lg:table-cell">Dernière connexion</TableHead>
               <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -1224,6 +1379,12 @@ export function UsersPage({
                     <StatusBadge user={user} />
                   </TableCell>
 
+                  {/* Last login — GoTrue's own `last_sign_in_at`, read-only
+                      here just like on the detail view. */}
+                  <TableCell className="text-ink-soft text-xs hidden lg:table-cell whitespace-nowrap">
+                    {user.lastSignInAt ? relativeTime(user.lastSignInAt) : "Jamais connecté"}
+                  </TableCell>
+
                   {/* Actions */}
                   <TableCell className="text-right">
                     <Button
@@ -1242,7 +1403,7 @@ export function UsersPage({
 
             {filteredUsers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center h-24 text-ink-soft">
+                <TableCell colSpan={7} className="text-center h-24 text-ink-soft">
                   <p className="text-sm font-medium text-ink">Aucun membre correspondant trouvé.</p>
                 </TableCell>
               </TableRow>

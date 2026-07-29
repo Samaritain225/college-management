@@ -30,7 +30,7 @@ function getInitials(name: string): string {
 }
 
 export function ProfileSection() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
 
   const [fullName, setFullName] = useState("")
   const [phone, setPhone] = useState("")
@@ -149,7 +149,8 @@ export function ProfileSection() {
       if (error) throw error
 
       setAvatarKey(nextAvatarKey)
-      toast.success("Profil mis à jour. Reconnectez-vous pour voir le nouveau nom partout.")
+      await refreshUser()
+      toast.success("Profil mis à jour.")
 
       // Same ordering as the college logo: only delete the old object once
       // the row pointing at the new one has committed.

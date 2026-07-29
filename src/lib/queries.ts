@@ -216,6 +216,11 @@ export interface Expense {
   spent_at: string
   recorded_by: string
   recorded_by_name: string | null
+  /** True when the account behind recorded_by_name has been soft-deleted —
+   *  the name still identifies who recorded this, but that account no
+   *  longer has access. Never true for a hard-deleted user, since those
+   *  never existed with attributable history in the first place. */
+  recorded_by_deleted: boolean
   reverses_expense_id: string | null
   /** R2 object key for an uploaded receipt, or null. Rows created before the
    *  upload existed hold a hand-typed text reference in this same column
@@ -235,7 +240,7 @@ export async function listExpenses(): Promise<Expense[]> {
   const res = await supabase
     .from("expenses")
     .select(
-      "id, category_id, total_amount, label, occurred_on, recorded_by, reverses_expense_id, receipt_key, payee, payment_method, expense_categories(name), profiles(full_name)"
+      "id, category_id, total_amount, label, occurred_on, recorded_by, reverses_expense_id, receipt_key, payee, payment_method, expense_categories(name), profiles(full_name, deleted_at)"
     )
     .eq("college_id", COLLEGE_ID)
     .order("occurred_on", { ascending: false })
@@ -250,6 +255,7 @@ export async function listExpenses(): Promise<Expense[]> {
     spent_at: e.occurred_on,
     recorded_by: e.recorded_by,
     recorded_by_name: e.profiles?.full_name ?? null,
+    recorded_by_deleted: !!e.profiles?.deleted_at,
     reverses_expense_id: e.reverses_expense_id,
     receipt_key: e.receipt_key ?? null,
     payee: e.payee ?? null,
@@ -394,6 +400,7 @@ export async function getExpensesPage(
       spent_at: e.spent_at,
       recorded_by: e.recorded_by,
       recorded_by_name: e.recorded_by_name,
+      recorded_by_deleted: !!e.recorded_by_deleted,
       reverses_expense_id: e.reverses_expense_id,
       receipt_key: e.receipt_key ?? null,
       payee: cashDetails.get(e.id)?.payee ?? null,

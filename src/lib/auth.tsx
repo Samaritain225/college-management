@@ -39,6 +39,9 @@ export interface AuthUser {
   /** Every role this user holds (a person can be both investor and teacher). */
   roles: string[]
   isActive: boolean
+  /** `profiles.avatar_key` — an R2 object key, not a URL. Resolve with
+   *  `publicUrl()` from `@/lib/uploads` before rendering. */
+  avatarKey: string | null
 }
 
 export type AuthStatus = "checking" | "authenticated" | "unauthenticated"
@@ -51,6 +54,11 @@ interface AuthContextValue {
   error: string | null
   login: (email: string, password: string, captchaToken?: string) => Promise<AuthUser>
   logout: () => Promise<void>
+  /** Re-runs the profile/roles fetch for the current session and updates both
+   *  the context and the cache — for after an edit to one's own profile
+   *  (name, phone, avatar), so the header/sidebar reflect it without forcing
+   *  a full reconnect. No-op if there's no session. */
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -78,7 +86,7 @@ export function canManageFinance(user: AuthUser | null): boolean {
 
 async function fetchAuthUser(supabaseUser: SupabaseUser): Promise<AuthUser> {
   const [{ data: profile }, { data: roleRows, error: rolesError }] = await Promise.all([
-    supabase.from("profiles").select("full_name").eq("id", supabaseUser.id).maybeSingle(),
+    supabase.from("profiles").select("full_name, avatar_key").eq("id", supabaseUser.id).maybeSingle(),
     supabase.from("user_roles").select("role_id").eq("user_id", supabaseUser.id),
   ])
 
@@ -95,6 +103,7 @@ async function fetchAuthUser(supabaseUser: SupabaseUser): Promise<AuthUser> {
     // A banned/deactivated user cannot obtain a session at all (GoTrue
     // rejects the sign-in), so reaching this point already implies active.
     isActive: true,
+    avatarKey: profile?.avatar_key ?? null,
   }
 }
 
@@ -277,6 +286,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return authUser
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session) return
+
+    const authUser = await fetchAuthUser(session.user)
+    writeCachedUser(authUser)
+    setUser(authUser)
+  }, [])
+
   const logout = useCallback(async () => {
     await supabase.auth.signOut()
     writeCachedUser(null)
@@ -290,7 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loading = status === "checking"
 
   return (
-    <AuthContext.Provider value={{ user, loading, status, error, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, status, error, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

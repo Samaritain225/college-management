@@ -1476,6 +1476,9 @@ export function ExpensesPage({
                   </span>
                   <span className="col-span-2 text-sm text-ink">
                     {selectedExpense.recorded_by_name || "Agent comptable / Trésorerie"}
+                    {selectedExpense.recorded_by_deleted && (
+                      <span className="text-ink-soft"> (compte supprimé)</span>
+                    )}
                   </span>
                 </div>
 
@@ -1610,7 +1613,10 @@ export function ExpensesPage({
                           </div>
                           <div className="flex items-center justify-between text-xs text-ink-soft">
                             <span>{formatDay(e.spent_at)}</span>
-                            <span>Par : {e.recorded_by_name || "Agent"}</span>
+                            <span>
+                              Par : {e.recorded_by_name || "Agent"}
+                              {e.recorded_by_deleted && " (compte supprimé)"}
+                            </span>
                           </div>
                         </div>
                       ))}

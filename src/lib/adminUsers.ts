@@ -19,6 +19,14 @@ export interface ApiUser {
    *  sign-in. Derives the "pending / active / disabled" status shown in the
    *  UI; nothing here is a separate hand-maintained flag. */
   lastSignInAt: string | null
+  /** Set only by a soft delete (see deleteAdminUser) — the profile row
+   *  survives so recorded_by_name keeps naming a person, but the account is
+   *  gone in every other sense: banned, its email tombstoned. Null for
+   *  every account that hasn't been through that path, including hard-
+   *  deleted ones, which don't appear in this list at all anymore. */
+  deletedAt: string | null
+  /** Who performed the soft delete, for the super-admin archive view. */
+  deletedByName: string | null
 }
 
 async function call<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -70,12 +78,14 @@ export function setAdminUserActive(id: string, active: boolean) {
 }
 
 /**
- * Permanent — distinct from `setAdminUserActive(id, false)`. The server
- * refuses this (409) if the account has any expense, activity-log or
- * investor row pointing at it; that error's message is written to explain
- * why and to suggest deactivating instead, so it's safe to just surface it
- * to the caller rather than re-deriving the reason here.
+ * Distinct from `setAdminUserActive(id, false)` — and, unlike before, not
+ * always a permanent erase. The server decides which: `mode: "hard"` when
+ * nothing referenced the account (identical to the old behavior — every
+ * trace gone), `mode: "soft"` when expenses/activity-log/investor rows do
+ * (banned permanently, email tombstoned and freed for reuse, but the
+ * profile survives so financial history stays attributable). Report
+ * whichever actually happened — never describe a soft delete as an erase.
  */
 export function deleteAdminUser(id: string) {
-  return call<{ data: { ok: true } }>(`/${id}`, "DELETE")
+  return call<{ data: { ok: true; mode: "soft" | "hard" } }>(`/${id}`, "DELETE")
 }

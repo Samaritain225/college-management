@@ -130,20 +130,34 @@ Deno.serve(async (req) => {
   try {
     // ---- LIST ----------------------------------------------------------
     if (req.method === "GET" && !targetId) {
-      const [{ data: authUsers, error: listErr }, { data: profiles }, { data: roleRows }] =
-        await Promise.all([
-          admin.auth.admin.listUsers({ perPage: 1000 }),
-          admin.from("profiles").select("id, full_name, phone, email"),
-          // super_admin rows are global (college_id null) — include them
-          // alongside this college's own roles, or every super_admin
-          // silently vanishes from the roster (including the caller,
-          // the very first time this endpoint was tested).
-          admin
-            .from("user_roles")
-            .select("user_id, role_id")
-            .or(`college_id.eq.${targetCollegeId},college_id.is.null`),
-        ])
+      const [
+        { data: authUsers, error: listErr },
+        { data: profiles, error: profilesErr },
+        { data: roleRows, error: rolesErr },
+      ] = await Promise.all([
+        admin.auth.admin.listUsers({ perPage: 1000 }),
+        // deleted_by is a self-referencing FK (profiles.deleted_by ->
+        // profiles.id). PostgREST embeds for self-joins (`deleter:profiles!
+        // profiles_deleted_by_fkey(full_name)`) kept 500ing with "Could not
+        // find a relationship between 'profiles' and 'profiles'" even after
+        // a schema-cache reload — every profile row is already fetched
+        // below regardless, so `deleted_by` is resolved by a second lookup
+        // into that same map instead of fighting the embed.
+        admin
+          .from("profiles")
+          .select("id, full_name, phone, email, deleted_at, deleted_by, deleted_email"),
+        // super_admin rows are global (college_id null) — include them
+        // alongside this college's own roles, or every super_admin
+        // silently vanishes from the roster (including the caller,
+        // the very first time this endpoint was tested).
+        admin
+          .from("user_roles")
+          .select("user_id, role_id")
+          .or(`college_id.eq.${targetCollegeId},college_id.is.null`),
+      ])
       if (listErr) throw listErr
+      if (profilesErr) throw profilesErr
+      if (rolesErr) throw rolesErr
 
       const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
       const rolesByUser = new Map<string, string[]>()
@@ -156,12 +170,17 @@ Deno.serve(async (req) => {
       const users = (authUsers?.users ?? [])
         .filter((u) => rolesByUser.has(u.id))
         .map((u) => {
-          const profile = profileById.get(u.id)
+          // deno-lint-ignore no-explicit-any -- supabase-js's generated types
+          // don't know about this project's schema.
+          const profile = profileById.get(u.id) as any
           const banned = u.banned_until && new Date(u.banned_until) > new Date()
+          const isDeleted = !!profile?.deleted_at
           return {
             id: u.id,
             name: profile?.full_name || u.email || "Utilisateur",
-            email: u.email ?? "",
+            // A soft-deleted identity's auth email is a tombstone — show the
+            // real address that was captured just before it was overwritten.
+            email: isDeleted ? profile?.deleted_email ?? "" : (u.email ?? ""),
             phone: profile?.phone ?? null,
             roleId: primaryRole(rolesByUser.get(u.id) ?? []),
             isActive: !banned,
@@ -172,6 +191,10 @@ Deno.serve(async (req) => {
             // check itself that sets it, so it can't drift from reality the
             // way a hand-maintained "activated" flag could.
             lastSignInAt: u.last_sign_in_at ?? null,
+            deletedAt: profile?.deleted_at ?? null,
+            deletedByName: profile?.deleted_by
+              ? (profileById.get(profile.deleted_by) as any)?.full_name ?? null
+              : null,
           }
         })
 
@@ -306,13 +329,27 @@ Deno.serve(async (req) => {
     }
 
     // ---- DELETE ----------------------------------------------------------
-    // A genuine, permanent erase — distinct from deactivate. Only reachable
-    // when nothing in the financial/audit trail points at this person:
-    // expenses, activity_log and investors all reference `profiles` with
-    // NO ACTION (see AGENTS.md's append-only rule), so Postgres would refuse
-    // the profiles delete anyway if any existed — this check exists to give
-    // a clear reason instead of a raw constraint-violation error, and to
-    // decide *before* touching auth.users whether to proceed at all.
+    // Two outcomes depending on whether financial/audit history points at
+    // this person: expenses, activity_log and investors all reference
+    // `profiles` with NO ACTION (see AGENTS.md's append-only rule), so
+    // Postgres would refuse a hard delete anyway if any existed.
+    //
+    //   no references  -> hard delete, as before: user_roles, profiles,
+    //                      auth.users all removed, nothing left behind.
+    //   references exist -> soft delete: the account is banned permanently
+    //                      and its auth email is tombstoned so the address
+    //                      becomes reusable (see the plan doc for why this
+    //                      can't be avoided), but `profiles` survives so
+    //                      `recorded_by_name` keeps naming a person instead
+    //                      of an orphaned uuid. user_roles is kept too —
+    //                      dropping it would silently remove the account
+    //                      from every role-scoped list, including the
+    //                      super-admin archive meant to show it.
+    //
+    // Irreversible either way past this point: a hard delete for the usual
+    // reason, a soft delete because the original email is gone from
+    // auth.users the moment it's overwritten — restoring the account would
+    // need a fresh address typed back in by hand.
     if (req.method === "DELETE") {
       const guardErr = await checkCanActOn("supprimer")
       if (guardErr) return json({ error: guardErr }, targetId === caller.id ? 400 : 403)
@@ -324,18 +361,52 @@ Deno.serve(async (req) => {
           admin.from("investors").select("id", { count: "exact", head: true }).eq("user_id", targetId),
         ])
       const totalRefs = (expenseCount ?? 0) + (activityCount ?? 0) + (investorCount ?? 0)
-      if (totalRefs > 0) {
-        return json(
-          {
-            error: `Impossible de supprimer : ${totalRefs} enregistrement(s) lié(s) (dépenses, activité ou investissements). Désactivez le compte à la place.`,
-          },
-          409
-        )
-      }
 
-      // Read the name before anything is deleted — targetName() reads
-      // `profiles`, which won't exist a moment from now.
+      // Read the name before anything changes — targetName() reads
+      // `profiles`, which a hard delete is about to remove.
       const name = await targetName(targetId)
+
+      if (totalRefs > 0) {
+        // Captured before the tombstone write below — handle_updated_user()
+        // (20260725012345) syncs profiles.email from auth.users on every
+        // email change, so once the tombstone lands there's no reading the
+        // real address back from anywhere except this moment.
+        const { data: profileBeforeTombstone } = await admin
+          .from("profiles")
+          .select("email")
+          .eq("id", targetId)
+          .maybeSingle()
+        const originalEmail = profileBeforeTombstone?.email ?? null
+
+        // A reserved-by-RFC TLD (.invalid, RFC 2606) that can never resolve
+        // or receive mail — the point is only to free the real address for
+        // reuse, not to reach anyone at this one.
+        const tombstoneEmail = `deleted+${targetId}@wagnon.invalid`
+        const { error: tombstoneErr } = await admin.auth.admin.updateUserById(targetId, {
+          email: tombstoneEmail,
+          ban_duration: "876000h",
+        })
+        if (tombstoneErr) return json({ error: tombstoneErr.message }, 400)
+
+        const { error: softDelErr } = await admin
+          .from("profiles")
+          .update({
+            deleted_at: new Date().toISOString(),
+            deleted_by: callerId,
+            deleted_email: originalEmail,
+          })
+          .eq("id", targetId)
+        if (softDelErr) return json({ error: softDelErr.message }, 400)
+
+        await logAdminAction("USER_SOFT_DELETE", {
+          name,
+          expense_count: expenseCount ?? 0,
+          activity_count: activityCount ?? 0,
+          investor_count: investorCount ?? 0,
+        })
+
+        return json({ data: { ok: true, mode: "soft" } })
+      }
 
       // Children first: user_roles has no FK back to profiles/auth.users
       // (only to colleges and roles), so nothing would clean it up
@@ -352,11 +423,22 @@ Deno.serve(async (req) => {
       // refused above.
       await logAdminAction("USER_DELETE", { name })
 
-      return json({ data: { ok: true } })
+      return json({ data: { ok: true, mode: "hard" } })
     }
 
     return json({ error: "Not found" }, 404)
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : "Internal error" }, 500)
+    // A thrown Postgrest error (e.g. `if (profilesErr) throw profilesErr`
+    // above) is a plain object with a `.message` string, not an `Error`
+    // instance — `instanceof Error` alone silently discarded it in favor of
+    // "Internal error", hiding the real reason behind every query failure
+    // caught here. Checked for `.message` on any object, not just Errors.
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message: unknown }).message)
+          : "Internal error"
+    return json({ error: message }, 500)
   }
 })
