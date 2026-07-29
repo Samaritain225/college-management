@@ -317,6 +317,16 @@ export interface ExpensesPageResult {
   categoryStats: CategoryStat[]
 }
 
+export type ExpenseTablePageResult = Pick<
+  ExpensesPageResult,
+  "rows" | "total" | "filteredTotal"
+>
+
+export type ExpenseKpisResult = Pick<
+  ExpensesPageResult,
+  "stats" | "categoryStats"
+>
+
 export type ExpensesSortColumn = "date" | "amount" | "category"
 export type SortDirection = "asc" | "desc"
 
@@ -331,6 +341,110 @@ export interface ExpensesPageQuery {
   pageSize?: number
   sort?: ExpensesSortColumn
   dir?: SortDirection
+}
+
+export async function listExpenseYears(): Promise<number[]> {
+  const rows = unwrap(await supabase.rpc("expense_years", {
+    p_college_id: COLLEGE_ID,
+  })) as Array<{ year: number | string }>
+
+  return rows
+    .map((row) => Number(row.year))
+    .filter((year) => Number.isInteger(year))
+}
+
+function expenseStatsFromRpc(value: any): ExpenseStats {
+  const s = value ?? {}
+  return {
+    totalCount: Number(s.total_count ?? 0),
+    totalAmount: Number(s.total_amount ?? 0),
+    avgAmount: Number(s.avg_amount ?? 0),
+    todayCount: Number(s.today_count ?? 0),
+    todayAmount: Number(s.today_amount ?? 0),
+    paidAmount: Number(s.paid_amount ?? 0),
+    reliquatAmount: Number(s.reliquat_amount ?? 0),
+    unpaidCount: Number(s.unpaid_count ?? 0),
+    maxAmount: s.max_amount != null ? Number(s.max_amount) : null,
+    maxLabel: s.max_label ?? null,
+    maxCategory: s.max_category ?? null,
+    maxOn: s.max_on ?? null,
+    elapsedDays: s.elapsed_days != null ? Number(s.elapsed_days) : null,
+    prevAmount: s.prev_amount != null ? Number(s.prev_amount) : null,
+  }
+}
+
+function categoryStatsFromRpc(value: any): CategoryStat[] {
+  return (value ?? []).map((c: any) => ({
+    categoryId: c.category_id,
+    total: Number(c.total),
+    count: Number(c.count),
+  }))
+}
+
+async function hydrateExpensePageRows(pageRows: any[]): Promise<Expense[]> {
+  const ids = pageRows.map((e) => e.id)
+  const details = ids.length
+    ? unwrap(await supabase.from("expenses").select("id, payee, payment_method").in("id", ids)) as any[]
+    : []
+  const cashDetails = new Map(details.map((e) => [e.id, e]))
+
+  return pageRows.map((e) => ({
+    id: e.id,
+    category_id: e.category_id,
+    category_name: e.category_name,
+    amount: Number(e.amount),
+    description: e.description,
+    spent_at: e.spent_at,
+    recorded_by: e.recorded_by,
+    recorded_by_name: e.recorded_by_name,
+    recorded_by_deleted: !!e.recorded_by_deleted,
+    reverses_expense_id: e.reverses_expense_id,
+    receipt_key: e.receipt_key ?? null,
+    payee: cashDetails.get(e.id)?.payee ?? null,
+    payment_method: cashDetails.get(e.id)?.payment_method ?? null,
+    paid: Number(e.paid ?? 0),
+    reliquat: Number(e.reliquat ?? 0),
+  }))
+}
+
+export async function getExpenseTablePage(
+  q: ExpensesPageQuery = {}
+): Promise<ExpenseTablePageResult> {
+  const pageSize = q.pageSize ?? 10
+  const page = Math.max(q.page ?? 1, 1)
+  const d = unwrap(await supabase.rpc("expense_table_page", {
+    p_college_id: COLLEGE_ID,
+    p_search: q.search ?? null,
+    p_category_id: q.categoryId ?? null,
+    p_from: q.from ?? null,
+    p_to: q.to ?? null,
+    p_limit: pageSize,
+    p_offset: (page - 1) * pageSize,
+    p_sort: q.sort ?? "date",
+    p_dir: q.dir ?? "desc",
+  })) as any
+
+  return {
+    total: Number(d.total ?? 0),
+    filteredTotal: Number(d.filtered_total ?? 0),
+    rows: await hydrateExpensePageRows(d.rows ?? []),
+  }
+}
+
+export async function getExpenseKpis({
+  from = null,
+  to = null,
+}: Pick<ExpensesPageQuery, "from" | "to"> = {}): Promise<ExpenseKpisResult> {
+  const d = unwrap(await supabase.rpc("expense_kpis", {
+    p_college_id: COLLEGE_ID,
+    p_from: from,
+    p_to: to,
+  })) as any
+
+  return {
+    stats: expenseStatsFromRpc(d.stats),
+    categoryStats: categoryStatsFromRpc(d.category_stats),
+  }
 }
 
 /**
@@ -361,53 +475,12 @@ export async function getExpensesPage(
 
   const d = unwrap(res) as any
   const pageRows = d.rows ?? []
-  const ids = pageRows.map((e: any) => e.id)
-  const details = ids.length
-    ? unwrap(await supabase.from("expenses").select("id, payee, payment_method").in("id", ids)) as any[]
-    : []
-  const cashDetails = new Map(details.map((e) => [e.id, e]))
-  const s = d.stats ?? {}
   return {
     total: Number(d.total ?? 0),
     filteredTotal: Number(d.filtered_total ?? 0),
-    stats: {
-      totalCount: Number(s.total_count ?? 0),
-      totalAmount: Number(s.total_amount ?? 0),
-      avgAmount: Number(s.avg_amount ?? 0),
-      todayCount: Number(s.today_count ?? 0),
-      todayAmount: Number(s.today_amount ?? 0),
-      paidAmount: Number(s.paid_amount ?? 0),
-      reliquatAmount: Number(s.reliquat_amount ?? 0),
-      unpaidCount: Number(s.unpaid_count ?? 0),
-      maxAmount: s.max_amount != null ? Number(s.max_amount) : null,
-      maxLabel: s.max_label ?? null,
-      maxCategory: s.max_category ?? null,
-      maxOn: s.max_on ?? null,
-      elapsedDays: s.elapsed_days != null ? Number(s.elapsed_days) : null,
-      prevAmount: s.prev_amount != null ? Number(s.prev_amount) : null,
-    },
-    categoryStats: (d.category_stats ?? []).map((c: any) => ({
-      categoryId: c.category_id,
-      total: Number(c.total),
-      count: Number(c.count),
-    })),
-    rows: pageRows.map((e: any) => ({
-      id: e.id,
-      category_id: e.category_id,
-      category_name: e.category_name,
-      amount: Number(e.amount),
-      description: e.description,
-      spent_at: e.spent_at,
-      recorded_by: e.recorded_by,
-      recorded_by_name: e.recorded_by_name,
-      recorded_by_deleted: !!e.recorded_by_deleted,
-      reverses_expense_id: e.reverses_expense_id,
-      receipt_key: e.receipt_key ?? null,
-      payee: cashDetails.get(e.id)?.payee ?? null,
-      payment_method: cashDetails.get(e.id)?.payment_method ?? null,
-      paid: Number(e.paid ?? 0),
-      reliquat: Number(e.reliquat ?? 0),
-    })),
+    stats: expenseStatsFromRpc(d.stats),
+    categoryStats: categoryStatsFromRpc(d.category_stats),
+    rows: await hydrateExpensePageRows(pageRows),
   }
 }
 

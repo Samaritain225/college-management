@@ -48,8 +48,10 @@ import {
   addCategory,
   addExpense,
   getExpensesExport,
-  getExpensesPage,
+  getExpenseKpis,
+  getExpenseTablePage,
   listCategories,
+  listExpenseYears,
   type BudgetCategory,
   type CategoryStat,
   type Expense,
@@ -122,6 +124,35 @@ const CATEGORIES_CACHE_KEY = "expense-categories"
 let categoriesCache: BudgetCategory[] | null =
   readCache<BudgetCategory[]>(CATEGORIES_CACHE_KEY)
 
+type ExpenseTablePeriod = "this_month" | "this_year" | "all" | `year:${number}`
+
+const EMPTY_EXPENSE_STATS: ExpenseStats = {
+  totalCount: 0,
+  totalAmount: 0,
+  avgAmount: 0,
+  todayCount: 0,
+  todayAmount: 0,
+  paidAmount: 0,
+  reliquatAmount: 0,
+  unpaidCount: 0,
+  maxAmount: null,
+  maxLabel: null,
+  maxCategory: null,
+  maxOn: null,
+  elapsedDays: null,
+  prevAmount: null,
+}
+
+function expenseTablePeriodRange(period: ExpenseTablePeriod): { from: string | null; to: string | null } {
+  if (period === "this_month" || period === "this_year" || period === "all") {
+    return periodRange(period)
+  }
+
+  const year = Number(period.slice(5))
+  if (!Number.isInteger(year)) return periodRange("this_year")
+  return { from: `${year}-01-01`, to: `${year}-12-31` }
+}
+
 export function ExpensesPage({
   onChange,
   dbReady = true,
@@ -135,7 +166,8 @@ export function ExpensesPage({
   const navigate = useNavigate()
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [categories, setCategories] = useState<BudgetCategory[]>(categoriesCache ?? [])
-  const [loading, setLoading] = useState(true)
+  const [tableLoaded, setTableLoaded] = useState(false)
+  const [kpisLoaded, setKpisLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState<TabMode>(mode)
 
   useEffect(() => {
@@ -192,7 +224,9 @@ export function ExpensesPage({
   // Filters and search
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
-  const [selectedPeriod, setSelectedPeriod] = useState<Period>("this_month")
+  const [kpiPeriod, setKpiPeriod] = useState<Period>("this_month")
+  const [tablePeriod, setTablePeriod] = useState<ExpenseTablePeriod>("this_year")
+  const [expenseYears, setExpenseYears] = useState<number[]>([])
   const [categorySearchQuery, setCategorySearchQuery] = useState("")
 
   // Details sheet
@@ -203,25 +237,15 @@ export function ExpensesPage({
   // `expenses` is one page of ten, and `total` is how many match the filters.
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [stats, setStats] = useState<ExpenseStats>({
-    totalCount: 0,
-    totalAmount: 0,
-    avgAmount: 0,
-    todayCount: 0,
-    todayAmount: 0,
-    paidAmount: 0,
-    reliquatAmount: 0,
-    unpaidCount: 0,
-    maxAmount: null,
-    maxLabel: null,
-    maxCategory: null,
-    maxOn: null,
-    elapsedDays: null,
-    prevAmount: null,
-  })
+  const [stats, setStats] = useState<ExpenseStats>(EMPTY_EXPENSE_STATS)
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([])
   const [filteredTotal, setFilteredTotal] = useState(0)
   const [pageLoading, setPageLoading] = useState(false)
+  const [tableError, setTableError] = useState<string | null>(null)
+  const [kpiError, setKpiError] = useState<string | null>(null)
+  const tableRequestIdRef = useRef(0)
+  const kpiRequestIdRef = useRef(0)
+  const yearsRequestIdRef = useRef(0)
 
   // Print report — a full, unpaged pull of whatever is currently filtered.
   // Rendered off-screen (`hidden print:block`) so it never shows on screen;
@@ -249,23 +273,21 @@ export function ExpensesPage({
   // Typing in the search box should not fire a query per keystroke.
   const debouncedSearch = useDebounced(searchQuery, 300)
 
-  // Any filter or sort change invalidates the current page number — staying
-  // on page 7 of a result set that now has two pages shows an empty table.
-  // `selectedPeriod` belongs here for the same reason as the others: it
-  // narrows the result set, so it can strand the reader past the last page.
+  // Any table filter or sort change invalidates the current page number —
+  // staying on page 7 of a result set that now has two pages shows an empty
+  // table. The KPI period is intentionally absent: it no longer owns the grid.
   useEffect(() => {
     setPage(1)
-  }, [debouncedSearch, selectedCategory, selectedPeriod, sortColumn, sortDir])
+  }, [debouncedSearch, selectedCategory, tablePeriod, sortColumn, sortDir])
 
-  const loadPage = useCallback(async () => {
+  const loadExpenseTable = useCallback(async () => {
     if (!dbReady) return
+    const requestId = ++tableRequestIdRef.current
     setPageLoading(true)
+    setTableError(null)
     try {
-      const range = periodRange(selectedPeriod)
-      // The table carries the date range too. Without it the grid and its
-      // total row describe the whole ledger while the KPI strip above them
-      // describes the selected period — two totals on one screen, disagreeing.
-      const [tableRes, kpiRes] = await Promise.all([getExpensesPage({
+      const range = expenseTablePeriodRange(tablePeriod)
+      const tableRes = await getExpenseTablePage({
         search: debouncedSearch,
         categoryId: selectedCategory === "all" ? null : selectedCategory,
         from: range.from,
@@ -274,19 +296,51 @@ export function ExpensesPage({
         pageSize: DEFAULT_PAGE_SIZE,
         sort: sortColumn,
         dir: sortDir,
-      }), getExpensesPage({ from: range.from, to: range.to, page: 1, pageSize: 1 })])
+      })
+      if (requestId !== tableRequestIdRef.current) return
       setExpenses(tableRes.rows)
       setTotal(tableRes.total)
       setFilteredTotal(tableRes.filteredTotal)
+    } catch (e) {
+      console.error(e)
+      if (requestId === tableRequestIdRef.current) {
+        setExpenses([])
+        setTotal(0)
+        setFilteredTotal(0)
+        setTableError("Impossible de charger les dépenses pour cette période.")
+      }
+    } finally {
+      if (requestId === tableRequestIdRef.current) {
+        setPageLoading(false)
+        setTableLoaded(true)
+      }
+    }
+  }, [dbReady, debouncedSearch, selectedCategory, tablePeriod, page, sortColumn, sortDir])
+
+  const loadExpenseKpis = useCallback(async () => {
+    if (!dbReady) return
+    const requestId = ++kpiRequestIdRef.current
+    setKpiError(null)
+    try {
+      const range = periodRange(kpiPeriod)
+      const kpiRes = await getExpenseKpis({
+        from: range.from,
+        to: range.to,
+      })
+      if (requestId !== kpiRequestIdRef.current) return
       setStats(kpiRes.stats)
       setCategoryStats(kpiRes.categoryStats)
     } catch (e) {
       console.error(e)
+      if (requestId === kpiRequestIdRef.current) {
+        setStats(EMPTY_EXPENSE_STATS)
+        setCategoryStats([])
+        setKpiError("Impossible de charger les indicateurs pour cette période.")
+      }
     } finally {
-      setPageLoading(false)
-      setLoading(false)
+      if (requestId === kpiRequestIdRef.current) setKpisLoaded(true)
     }
-  }, [dbReady, debouncedSearch, selectedCategory, selectedPeriod, page, sortColumn, sortDir])
+  }, [dbReady, kpiPeriod])
 
   async function loadCategories() {
     if (!dbReady) return
@@ -300,17 +354,38 @@ export function ExpensesPage({
     }
   }
 
-  /** After a write — re-read both the page and the category list. */
+  async function loadExpenseYears() {
+    if (!dbReady) return
+    const requestId = ++yearsRequestIdRef.current
+    try {
+      const years = await listExpenseYears()
+      if (requestId === yearsRequestIdRef.current) setExpenseYears(years)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  /** After a write — refresh every independently owned expense view. */
   async function refresh() {
-    await Promise.all([loadPage(), loadCategories()])
+    await Promise.all([
+      loadExpenseTable(),
+      loadExpenseKpis(),
+      loadCategories(),
+      loadExpenseYears(),
+    ])
   }
 
   useEffect(() => {
-    void loadPage()
-  }, [loadPage])
+    void loadExpenseTable()
+  }, [loadExpenseTable])
+
+  useEffect(() => {
+    void loadExpenseKpis()
+  }, [loadExpenseKpis])
 
   useEffect(() => {
     void loadCategories()
+    void loadExpenseYears()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady])
 
@@ -322,8 +397,8 @@ export function ExpensesPage({
     // Same period the KPI panel above this list is scoped to (categoryStats
     // is period-scoped) — fetching without it made the two disagree whenever
     // a period was selected on the Dépenses tab before navigating here.
-    const range = periodRange(selectedPeriod)
-    getExpensesPage({
+    const range = periodRange(kpiPeriod)
+    getExpenseTablePage({
       categoryId: cat.id,
       from: range.from,
       to: range.to,
@@ -345,7 +420,7 @@ export function ExpensesPage({
     return () => {
       cancelled = true
     }
-  }, [selectedCategoryDetails, selectedPeriod, dbReady])
+  }, [selectedCategoryDetails, kpiPeriod, dbReady])
 
   function resetExpenseForm() {
     setCategoryId("")
@@ -488,13 +563,17 @@ export function ExpensesPage({
     return map
   }, [categoryStats])
 
-  // Already the filtered page — search, category and period are applied by
-  // `expenses_page`, so there is nothing left to filter here.
+  // Already the filtered page — search, category and the table-owned period
+  // are applied by `expense_table_page`, so there is nothing left to filter here.
   const filteredExpenses = expenses
+  const historicalExpenseYears = useMemo(() => {
+    const currentYear = new Date().getFullYear()
+    return expenseYears.filter((year) => year !== currentYear)
+  }, [expenseYears])
 
   // "Au total" is only true when nothing is filtered — with a period
   // selected these cards describe that period, not the whole ledger.
-  const isPeriodScoped = selectedPeriod !== "all"
+  const isPeriodScoped = kpiPeriod !== "all"
 
   // Percentage change vs. the same-length window immediately preceding the
   // period (computed server-side so "27 days of July" is compared against
@@ -507,9 +586,8 @@ export function ExpensesPage({
     return `${pct >= 0 ? "+" : ""}${pct} % vs période précédente`
   }, [isPeriodScoped, stats.prevAmount, stats.totalAmount])
 
-  // The heaviest category by spend in the period — categoryStats is already
-  // in memory (it comes back with every page load), so this is pure
-  // rendering, no extra round trip.
+  // The heaviest category by spend in the KPI period — categoryStats arrives
+  // with the independently loaded KPI summary, so this is pure rendering.
   const topCategory = useMemo(() => {
     if (categoryStats.length === 0) return null
     const top = categoryStats.reduce((max, c) => (c.total > max.total ? c : max))
@@ -619,7 +697,7 @@ export function ExpensesPage({
     )
   }
 
-  if (!dbReady || loading) {
+  if (!dbReady || !tableLoaded || !kpisLoaded) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-8 animate-pulse space-y-6">
         <div className="flex items-center justify-between">
@@ -692,8 +770,30 @@ export function ExpensesPage({
         <div className="space-y-4">
           {/* Period Filter (Right-aligned under header line, above KPI cards) */}
           <div className="flex justify-end items-center">
-            <PeriodFilter value={selectedPeriod} onChange={setSelectedPeriod} className="w-50" />
+            <PeriodFilter
+              value={kpiPeriod}
+              onChange={setKpiPeriod}
+              ariaLabel="Période des indicateurs de dépenses"
+              className="w-50"
+            />
           </div>
+          {kpiError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+            >
+              <span>{kpiError}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 max-md:h-11"
+                onClick={() => void loadExpenseKpis()}
+              >
+                Réessayer
+              </Button>
+            </div>
+          )}
 
           {/* KPI Cards Grid — four cards, each answering a question a
               non-technical reader actually has, not a number that happens to
@@ -742,30 +842,61 @@ export function ExpensesPage({
             />
           </div>
 
-          {/* Search & Category Filters */}
+          {/* Table-owned filters */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
             <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-ink-soft" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-ink-soft" aria-hidden="true" />
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filtrer par motif ou catégorie..."
-                className="pl-8 h-9 text-xs border-ink/15 bg-paper text-ink"
+                aria-label="Rechercher dans la liste des dépenses"
+                placeholder="Filtrer par motif ou catégorie…"
+                className="h-9 pl-8 text-xs border-ink/15 bg-paper text-ink max-md:h-11"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              {/* Table Period Filter */}
+              <Select
+                value={tablePeriod}
+                onValueChange={(value) => setTablePeriod(value as ExpenseTablePeriod)}
+              >
+                <SelectTrigger
+                  aria-label="Période de la liste des dépenses"
+                  className="h-9 min-w-36 flex-1 bg-paper border-ink/15 text-xs text-ink font-display font-semibold max-md:!h-11 sm:w-40 sm:flex-none"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-paper border-ink/10">
+                  <SelectGroup>
+                    <SelectItem value="this_month">Ce mois-ci</SelectItem>
+                    <SelectItem value="this_year">Cette année</SelectItem>
+                    {historicalExpenseYears.map((year) => (
+                      <SelectItem key={year} value={`year:${year}`}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="all">Toutes les années</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+
               {/* Category Filter */}
               <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger className="h-9 w-48 bg-paper border-ink/15 text-xs text-ink font-display font-semibold">
+                <SelectTrigger
+                  aria-label="Catégorie de la liste des dépenses"
+                  className="h-9 min-w-36 flex-1 bg-paper border-ink/15 text-xs text-ink font-display font-semibold max-md:!h-11 sm:w-48 sm:flex-none"
+                >
                   <SelectValue placeholder="Toutes les catégories" />
                 </SelectTrigger>
                 <SelectContent className="bg-paper border-ink/10">
-                  <SelectItem value="all">Toutes les catégories</SelectItem>
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
+                  <SelectGroup>
+                    <SelectItem value="all">Toutes les catégories</SelectItem>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
 
@@ -774,7 +905,7 @@ export function ExpensesPage({
                   variant="ghost"
                   size="sm"
                   onClick={() => setSelectedCategory("all")}
-                  className="h-9 text-xs text-ink-soft hover:text-ink font-display"
+                  className="h-9 text-xs text-ink-soft hover:text-ink font-display max-md:h-11"
                 >
                   Effacer filtre
                 </Button>
@@ -785,14 +916,32 @@ export function ExpensesPage({
                 size="sm"
                 onClick={() => setPrintDialogOpen(true)}
                 disabled={printLoading}
-                className="h-9 text-xs border-ink/15 text-ink-soft hover:text-ink font-display gap-1.5"
+                className="h-9 text-xs border-ink/15 text-ink-soft hover:text-ink font-display gap-1.5 max-md:h-11"
                 title="Choisir la période du rapport"
               >
-                <Printer className="size-3.5" />
-                {printLoading ? "Préparation..." : "Imprimer"}
+                <Printer data-icon="inline-start" aria-hidden="true" />
+                {printLoading ? "Préparation…" : "Imprimer"}
               </Button>
             </div>
           </div>
+
+          {tableError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+            >
+              <span>{tableError}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 max-md:h-11"
+                onClick={() => void loadExpenseTable()}
+              >
+                Réessayer
+              </Button>
+            </div>
+          )}
 
           {/* Expenses Datatable */}
           <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
@@ -839,7 +988,7 @@ export function ExpensesPage({
                 <div className="p-6 text-center space-y-1">
                   <p className="font-medium text-ink text-xs">Aucune dépense trouvée</p>
                   <p className="text-xs text-ink-soft">
-                    {searchQuery || selectedCategory !== "all" || selectedPeriod !== "all"
+                    {searchQuery || selectedCategory !== "all" || tablePeriod !== "all"
                       ? "Essayez de modifier vos filtres de recherche."
                       : "Cliquez sur 'Enregistrer une dépense' pour démarrer."}
                   </p>
@@ -929,7 +1078,7 @@ export function ExpensesPage({
                       <div className="flex flex-col items-center justify-center space-y-1">
                         <p className="font-medium text-ink text-xs">Aucune dépense trouvée</p>
                         <p className="text-xs text-ink-soft">
-                          {searchQuery || selectedCategory !== "all" || selectedPeriod !== "all"
+                          {searchQuery || selectedCategory !== "all" || tablePeriod !== "all"
                             ? "Essayez de modifier vos filtres de recherche."
                             : "Cliquez sur 'Enregistrer une dépense' pour démarrer."}
                         </p>
@@ -976,8 +1125,30 @@ export function ExpensesPage({
               silently still applied to these totals even when this control
               wasn't rendered, so it must be visible here too. */}
           <div className="flex justify-end items-center">
-            <PeriodFilter value={selectedPeriod} onChange={setSelectedPeriod} className="w-50" />
+            <PeriodFilter
+              value={kpiPeriod}
+              onChange={setKpiPeriod}
+              ariaLabel="Période des indicateurs de dépenses"
+              className="w-50"
+            />
           </div>
+          {kpiError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+            >
+              <span>{kpiError}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 max-md:h-11"
+                onClick={() => void loadExpenseKpis()}
+              >
+                Réessayer
+              </Button>
+            </div>
+          )}
 
           {/* Search bar for categories */}
           <div className="flex items-center justify-between">
