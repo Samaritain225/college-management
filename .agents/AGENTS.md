@@ -263,6 +263,20 @@ multi-tenant UI yet — see "Known gaps" below.
   CORS-safelisted value — so it triggers a preflight. The bucket's CORS
   policy must allow `PUT` and the `Content-Type` header from the app origin
   (scheme + host + port must match exactly).
+- **Native `required` silently blocks React's `onSubmit`.** The browser
+  refuses its own form submission before the `submit` event ever fires, so
+  custom validation is unreachable for exactly the case it exists to handle —
+  an empty required field. Confirmed live: `form.requestSubmit()` on an empty
+  required input produced no `submit` event anywhere in the document. Every
+  form in this app that carries `required` also carries `noValidate` (both
+  Users dialogs, both Settings forms); the `required` attributes stay for
+  accessibility, validation itself is JS-driven. Adding a new form without
+  `noValidate` reintroduces this, and it fails silently.
+- **A CORS `Access-Control-Allow-Methods` that omits the verb fails the
+  preflight with no server-side trace at all** — the browser reports a bare
+  "Failed to fetch" and the function is never invoked, so `get_logs` shows
+  nothing. Cost a deploy cycle when `admin-users` gained DELETE. Check the
+  methods list whenever an Edge Function learns a new verb.
 
 ## File uploads (Cloudflare R2)
 

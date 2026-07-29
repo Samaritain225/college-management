@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import { Save, KeyRound, Mail, ShieldCheck, Camera, X } from "lucide-react"
 import { useAuth } from "@/lib/auth"
 import { supabase } from "@/lib/supabase"
-import { uploadFile, deleteFile, publicUrl } from "@/lib/uploads"
+import { uploadFile, deleteFile, publicUrl, validateUpload } from "@/lib/uploads"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 
 const MIN_PASSWORD_LENGTH = 8
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super administrateur",
@@ -95,12 +94,9 @@ export function ProfileSection() {
     e.target.value = ""
     if (!file) return
 
-    if (!file.type.startsWith("image/")) {
-      toast.error("Choisissez un fichier image (PNG ou JPG).")
-      return
-    }
-    if (file.size > MAX_AVATAR_BYTES) {
-      toast.error("Image trop volumineuse. Choisissez un fichier de moins de 2 Mo.")
+    const err = validateUpload(file, "avatar")
+    if (err) {
+      toast.error(err)
       return
     }
 
@@ -259,7 +255,9 @@ export function ProfileSection() {
             </div>
           </div>
 
-          <form onSubmit={handleSaveProfile} className="space-y-4 border-t border-ink/10 pt-5">
+          {/* noValidate — see the matching comment in CollegeIdentitySection.tsx;
+              the full-name field below carries `required`. */}
+          <form onSubmit={handleSaveProfile} className="space-y-4 border-t border-ink/10 pt-5" noValidate>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="profile-name" className="text-xs font-display font-medium text-ink">

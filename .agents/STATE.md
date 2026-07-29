@@ -1,14 +1,40 @@
 # Current State — Wagnon Budget
 
-Last updated 2026-07-28. Cap: 100 lines. See the compression protocol in
+Last updated 2026-07-29. Cap: 100 lines. See the compression protocol in
 `AGENTS.md` before adding to this file.
+
+## In flight — account lifecycle, investor read-only, notifications
+
+- `docs/access-lifecycle-plan-2026-07-29.md` is the agreed plan for five asks:
+  soft delete with a super-admin archive, attribution for deleted users, email
+  reuse rules, investor read-only, and expense notifications. Planned only,
+  nothing built. Build order is investor read-only first (no migration, no
+  deploy), then soft delete plus attribution plus email as one unit, then
+  notifications last.
+- Decided while planning: an investor sees **all** investors at their college,
+  read-only, so no RLS change is needed; notifications are in-app only; a
+  soft-deleted account's auth email is tombstoned so the address frees up,
+  which is irreversible for that account.
+- Realtime is deliberately stubbed out of the bundle
+  (`src/lib/supabase-stubs/realtime.ts`, two aliases in `vite.config.ts`) to
+  keep ~150 kB of idle `@supabase/realtime-js` off every page load, and
+  `supabase.channel()` throws on purpose. Live notifications would undo that,
+  so the plan backs the badge with polling instead and leaves the data model
+  identical either way.
+- Still undefined: whether "block" is a distinct action from deactivate, and
+  whether a soft-deleted account should ever be restorable.
+- The last session's work (validators, delete, status badges) is still
+  **uncommitted** — 8 modified files plus `src/lib/validation.ts`.
 
 ## Recently landed
 
 - R2 uploads, split settings, the dashboard balance fix, server-side paging
-  for expenses and the activity feed, real URLs via react-router, and the
-  y=48/x=28 shell datum are all shipped — see git log and `AGENTS.md` rather
-  than this file for their detail.
+  for expenses and the activity feed, real URLs via react-router, the
+  y=48/x=28 shell datum, the expenses-page mobile pass (period filter fixed,
+  card list below `sm`, payee/method reach the detail sheet), and
+  `storage-sign` scoped by college with receipt deletes refused are all
+  shipped — see git log and `AGENTS.md` rather than this file for their
+  detail.
 - The period filter no longer turns balances into nonsense. Three stat figures
   divided a period flow by an all-time total; the worst read "Solde Restant /
   Découvert" in red on a solvent college. Filtered, that card is now "Flux net".
@@ -51,9 +77,10 @@ Last updated 2026-07-28. Cap: 100 lines. See the compression protocol in
   since this app has no loaders/actions. Swapping to declarative
   `<BrowserRouter>` would drop it but needs a path→label map to replace the
   `useMatches()` breadcrumb first. Worth deciding before the next payload pass.
-- Two artefacts from verifying the audit trail on 2026-07-27: a "Test audit"
-  category, permanently in the dropdown because categories have no delete UI,
-  and a `test@college.ci` account. Both are real rows in the live project.
+- Artefacts from live verification, still real rows in the live project: a
+  "Test audit" category (permanently in the dropdown, categories have no
+  delete UI) and a `test@college.ci` account. The "Probe Test" account from
+  the same testing has since been fully erased — see below.
 - The non-admin redirect off `/users` and `/investors` is still unexercised,
   but no longer blocked: "Test Investor" (`b9dc85ea`) holds `investor` at this
   college, so the redirect can now actually be driven.
@@ -72,66 +99,34 @@ Last updated 2026-07-28. Cap: 100 lines. See the compression protocol in
   `docs/superpowers/specs/2026-07-28-cash-expenses-design.md`. The `paid` /
   `reliquat` fields still come back from `expenses_page` and are now dead
   weight on every page load.
+- Payee and payment method come from a *second, sequential* round trip
+  (`queries.ts`, `.from("expenses").in("id", ids)` after the RPC) instead of
+  `expenses_page`'s row payload. The perf audit's headline is that a
+  sequential hop costs 5–10× a parallel one, and this runs on every page,
+  sort and search. Fixing it is a migration — mind the overload gotcha.
 
-## Expense page mobile pass, 2026-07-28 — landed, verified in-browser at 375px
+## Password policy and account safety, 2026-07-28 — landed and deployed
 
-- The period filter reaches the ledger table again. It had been dropped from
-  the table query while the default period moved from "all" to "this_month",
-  so the KPI card read "3 137 845 F CFA · 57 dépenses" directly above a footer
-  reading "1802 dépenses filtrées · 152 548 245". Both now read 57 /
-  3 137 845. `selectedPeriod` is back in the `setPage(1)` effect's deps.
-- Below `sm` the ledger is a card list, not a table. The table measured 589px
-  inside a 331px column — 258px of horizontal drag on the same surface the
-  reader swipes to scroll the page. Each card carries date, category,
-  description, amount, payee and method, so nothing is lost to a hidden
-  column; the table is unchanged from `sm` up (688px in 688px, no overflow).
-- Payee and payment method are in the detail sheet now. They had existed only
-  in a `hidden md:table-cell` column, so a phone could not reach either.
-- All four dialogs in the app now scroll on a phone — three on the expenses
-  page plus the user-create dialog — see the `DialogContent` gotcha in
-  `AGENTS.md`. There are only four; investors, categories and settings turned
-  out to use no modal at all.
-- Three KPI cards, not four. "Transactions enregistrées" repeated the count
-  already in the first card's footer.
-- Legacy paper receipt references and R2 object keys share the `receipt_key`
-  column. `isUploadedReceiptKey` in `uploads.ts` tells them apart on the slash
-  in the key; a reference renders as text now, not a link that 404s.
-- The receipt size gate applies to PDFs only. Gating the raw file at 10 MB
-  rejected the commonest mobile case — a phone photo arrives at 8–15 MB and
-  `compressImage` re-encodes it to well under 1 MB *after* the input's
-  onChange. Images are left to compression plus the edge function's ceiling.
-- Still open: payee and payment method come from a *second, sequential* round
-  trip (`queries.ts`, `.from("expenses").in("id", ids)` after the RPC) instead
-  of `expenses_page`'s row payload. The perf audit's headline is that a
-  sequential hop costs 5–10× a parallel one, and this runs on every page, sort
-  and search. Fixing it is a migration — mind the overload gotcha.
-
-## storage-sign — college-scoped, deployed and exercised 2026-07-28
-
-- A role now only counts at the college it was granted at. The old code read
-  every `user_roles` row for the caller regardless of `college_id`, so a
-  treasurer at any college passed the finance check for every other college's
-  receipts. `super_admin` is matched on its global `college_id IS NULL` row.
-- New objects land under `colleges/<college-id>/logos/…` and
-  `colleges/<college-id>/receipts/<year>/…`. Avatars stay `avatars/<user-id>/`
-  on purpose — roles are many-to-many across colleges, so a person is not
-  owned by one college the way a logo or a receipt is.
-- Receipt deletes are refused outright. `expenses` is append-only, so leaving
-  the document deletable put a hole through that guarantee. Nothing calls it —
-  `deleteFile` is only ever reached with "avatar" and "logo".
-- `LEGACY_LOGO_PREFIX` exists because the one stored logo predates the layout
-  (`logos/7318eb58….jpg`); without it, replacing the logo would stop cleaning
-  up the old object.
-- Verified against the deployed function with live credentials, all
-  non-destructive: correct college signs a `colleges/<id>/receipts/2026/…`
-  key (200); missing collegeId 400; a college the caller holds no role at 403;
-  receipt delete 403; avatar signs unchanged and needs no college; a logo-kind
-  request carrying an avatar key 403; another college's logo key 403; a legacy
-  `logos/…` key still accepted. Logo and avatar objects re-fetched afterwards,
-  both still 200 — nothing was destroyed proving this.
-- Never executed locally: Docker is down, so there is no local stack. The
-  above is the deployed function answering real requests, which is stronger,
-  but it means there is no pre-deploy test gate for the next change here.
+- The real GoTrue policy on the hosted project (confirmed from Sam's live
+  rejection, not guessed): at least one lowercase, one uppercase, one digit,
+  one special character. No known minimum length — the policy doesn't state
+  one and there's no endpoint that reports it back. `UsersPage.tsx`'s
+  `passwordChecks()`/`PASSWORD_POLICY_MESSAGE` mirror this exactly; update
+  them by hand against the next real rejection if the Dashboard policy moves.
+  `ProfileSection.tsx`'s own self-service password form still only checks
+  length 8 — same latent mismatch, still not fixed.
+- `admin-users` is deployed with `checkCanActOn`, shared by deactivate and
+  DELETE: no account can act on itself, and a `super_admin` target needs a
+  `super_admin` caller. Deactivate remains "delete" in this app's everyday
+  vocabulary; DELETE is a genuine permanent erase, currently refused with 409
+  when `expenses`/`activity_log`/`investors` reference the profile. The
+  in-flight plan turns that 409 into a soft delete instead.
+- Users now show a derived status — "En attente" (never signed in),
+  "Actif", or "Désactivé" — read from GoTrue's `last_sign_in_at`, not a
+  separate flag. Purely informational: nothing blocks a pending account
+  from logging in. Verified live on a real account ("Test Investor," never
+  logged in) — showed "En attente" correctly. Detail view also shows last
+  sign-in time or "Jamais connecté".
 
 ## Decided, not yet built
 

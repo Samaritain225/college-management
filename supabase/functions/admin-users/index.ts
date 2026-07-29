@@ -23,7 +23,7 @@ const SERVICE_ROLE_KEY = Deno.env.get("LEGACY_SERVICE_ROLE_KEY")!
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
 }
 
 function json(body: unknown, status = 200) {
@@ -58,6 +58,10 @@ Deno.serve(async (req) => {
     data: { user: caller },
   } = await asCaller.auth.getUser()
   if (!caller) return json({ error: "Invalid session" }, 401)
+  // Narrowed to a plain string so the nested `checkCanActOn` closure below
+  // doesn't need TypeScript to re-prove `caller` is non-null across a
+  // function boundary it can't see through.
+  const callerId = caller.id
 
   // Every user this app manages today belongs to the one seeded college.
   // Scoping by the caller's own admin/super_admin role, not a client-
@@ -163,6 +167,11 @@ Deno.serve(async (req) => {
             isActive: !banned,
             createdAt: u.created_at,
             updatedAt: u.updated_at ?? null,
+            // GoTrue's own field — null means this identity has never
+            // completed a sign-in. Nothing writes it; it's the credential
+            // check itself that sets it, so it can't drift from reality the
+            // way a hand-maintained "activated" flag could.
+            lastSignInAt: u.last_sign_in_at ?? null,
           }
         })
 
@@ -256,8 +265,34 @@ Deno.serve(async (req) => {
       return json({ data: { ok: true } })
     }
 
+    // No account can act on itself (deactivate, delete), at any privilege
+    // level — this was previously enforced nowhere for deactivate: the UI
+    // hid the button for a super_admin's own row only because it hid it for
+    // every super_admin row, not because it checked identity, so a plain
+    // admin viewing their own profile had no server-side guard at all.
+    // A super_admin target can only be acted on by another super_admin — an
+    // admin (scoped to one college) has no business touching an account with
+    // global reach. Returns an error string, or null if the action may proceed.
+    async function checkCanActOn(action: string): Promise<string | null> {
+      if (targetId === callerId) {
+        return `Vous ne pouvez pas ${action} votre propre compte.`
+      }
+      const { data: targetRoles } = await admin
+        .from("user_roles")
+        .select("role_id")
+        .eq("user_id", targetId)
+      const targetIsSuperAdmin = (targetRoles ?? []).some((r) => r.role_id === "super_admin")
+      if (targetIsSuperAdmin && !isSuperAdmin) {
+        return "Seul un super administrateur peut agir sur ce compte."
+      }
+      return null
+    }
+
     // ---- DEACTIVATE / REACTIVATE --------------------------------------
     if (req.method === "PATCH" && (action === "deactivate" || action === "reactivate")) {
+      const guardErr = await checkCanActOn("désactiver")
+      if (guardErr) return json({ error: guardErr }, targetId === caller.id ? 400 : 403)
+
       const { error: banErr } = await admin.auth.admin.updateUserById(targetId, {
         ban_duration: action === "deactivate" ? "876000h" : "none",
       })
@@ -266,6 +301,56 @@ Deno.serve(async (req) => {
       await logAdminAction(action === "deactivate" ? "USER_DEACTIVATE" : "USER_REACTIVATE", {
         name: await targetName(targetId),
       })
+
+      return json({ data: { ok: true } })
+    }
+
+    // ---- DELETE ----------------------------------------------------------
+    // A genuine, permanent erase — distinct from deactivate. Only reachable
+    // when nothing in the financial/audit trail points at this person:
+    // expenses, activity_log and investors all reference `profiles` with
+    // NO ACTION (see AGENTS.md's append-only rule), so Postgres would refuse
+    // the profiles delete anyway if any existed — this check exists to give
+    // a clear reason instead of a raw constraint-violation error, and to
+    // decide *before* touching auth.users whether to proceed at all.
+    if (req.method === "DELETE") {
+      const guardErr = await checkCanActOn("supprimer")
+      if (guardErr) return json({ error: guardErr }, targetId === caller.id ? 400 : 403)
+
+      const [{ count: expenseCount }, { count: activityCount }, { count: investorCount }] =
+        await Promise.all([
+          admin.from("expenses").select("id", { count: "exact", head: true }).eq("recorded_by", targetId),
+          admin.from("activity_log").select("id", { count: "exact", head: true }).eq("user_id", targetId),
+          admin.from("investors").select("id", { count: "exact", head: true }).eq("user_id", targetId),
+        ])
+      const totalRefs = (expenseCount ?? 0) + (activityCount ?? 0) + (investorCount ?? 0)
+      if (totalRefs > 0) {
+        return json(
+          {
+            error: `Impossible de supprimer : ${totalRefs} enregistrement(s) lié(s) (dépenses, activité ou investissements). Désactivez le compte à la place.`,
+          },
+          409
+        )
+      }
+
+      // Read the name before anything is deleted — targetName() reads
+      // `profiles`, which won't exist a moment from now.
+      const name = await targetName(targetId)
+
+      // Children first: user_roles has no FK back to profiles/auth.users
+      // (only to colleges and roles), so nothing would clean it up
+      // automatically and it would otherwise dangle after the identity
+      // it names is gone.
+      await admin.from("user_roles").delete().eq("user_id", targetId)
+      await admin.from("profiles").delete().eq("id", targetId)
+      const { error: delErr } = await admin.auth.admin.deleteUser(targetId)
+      if (delErr) return json({ error: delErr.message }, 400)
+
+      // Logged as the *caller's* action (their own profile row still
+      // exists) — this is the one entry in this function where the actor
+      // and the subject are never the same person, since self-delete is
+      // refused above.
+      await logAdminAction("USER_DELETE", { name })
 
       return json({ data: { ok: true } })
     }

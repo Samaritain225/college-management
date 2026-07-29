@@ -62,7 +62,7 @@ import { useDebounced } from "@/lib/useDebounced"
 import { readCache, writeCache } from "@/lib/persistentCache"
 import { useNavigate } from "react-router-dom"
 import { cn, formatDay, formatMoney } from "@/lib/utils"
-import { isUploadedReceiptKey, publicUrl, uploadFile } from "@/lib/uploads"
+import { isUploadedReceiptKey, publicUrl, uploadFile, validateUpload } from "@/lib/uploads"
 import { format, startOfToday } from "date-fns"
 import { fr } from "date-fns/locale"
 import {
@@ -94,10 +94,6 @@ function formatAmountInput(val: string): string {
   if (!digits) return ""
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
 }
-
-/** Matches the "10 Mo maximum" caption and the edge function's own receipt
- *  ceiling. Applied to PDFs only — see the file input's onChange. */
-const MAX_RECEIPT_BYTES = 10 * 1024 * 1024
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cash: "Espèces",
@@ -1263,20 +1259,14 @@ export function ExpensesPage({
                 accept="image/jpeg,image/png,image/webp,application/pdf"
                 onChange={(e) => {
                   const file = e.target.files?.[0] ?? null
-                  // Only PDFs are gated here. Images are re-encoded to JPEG at
-                  // 1600px by `compressImage` *after* this point, and a phone
-                  // photo routinely arrives at 8–15 MB raw and lands under
-                  // 1 MB — rejecting on the raw size would refuse the single
-                  // most common way a receipt gets captured on this app.
-                  const gated = file && !file.type.startsWith("image/")
-                  if (gated && file.size > MAX_RECEIPT_BYTES) {
-                    setReceiptFile(null)
-                    e.target.value = ""
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      general: "Ce PDF dépasse 10 Mo. Choisissez un fichier plus léger.",
-                    }))
-                    return
+                  if (file) {
+                    const err = validateUpload(file, "receipt")
+                    if (err) {
+                      setReceiptFile(null)
+                      e.target.value = ""
+                      setFieldErrors((prev) => ({ ...prev, general: err }))
+                      return
+                    }
                   }
                   setFieldErrors((prev) => ({ ...prev, general: undefined }))
                   setReceiptFile(file)

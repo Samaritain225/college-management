@@ -15,6 +15,10 @@ export interface ApiUser {
   isActive: boolean
   createdAt: string
   updatedAt: string | null
+  /** GoTrue's own field — null means this identity has never completed a
+   *  sign-in. Derives the "pending / active / disabled" status shown in the
+   *  UI; nothing here is a separate hand-maintained flag. */
+  lastSignInAt: string | null
 }
 
 async function call<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -63,4 +67,15 @@ export function updateAdminUser(
 
 export function setAdminUserActive(id: string, active: boolean) {
   return call<{ data: { ok: true } }>(`/${id}/${active ? "reactivate" : "deactivate"}`, "PATCH")
+}
+
+/**
+ * Permanent — distinct from `setAdminUserActive(id, false)`. The server
+ * refuses this (409) if the account has any expense, activity-log or
+ * investor row pointing at it; that error's message is written to explain
+ * why and to suggest deactivating instead, so it's safe to just surface it
+ * to the caller rather than re-deriving the reason here.
+ */
+export function deleteAdminUser(id: string) {
+  return call<{ data: { ok: true } }>(`/${id}`, "DELETE")
 }

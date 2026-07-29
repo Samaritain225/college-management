@@ -12,6 +12,7 @@
 import { supabase } from "@/lib/supabase"
 import { compressImage } from "@/lib/image"
 import { COLLEGE_ID } from "@/lib/queries"
+import { validateFileSize, validateFileType } from "@/lib/validation"
 
 export type UploadKind = "logo" | "avatar" | "receipt"
 
@@ -21,6 +22,50 @@ const MAX_DIMENSION: Record<UploadKind, number> = {
   logo: 512,
   avatar: 512,
   receipt: 1600,
+}
+
+// Mirrors supabase/functions/storage-sign/index.ts's ALLOWED_CONTENT_TYPES
+// and MAX_BYTES. Can't literally share the table — one runs in the browser,
+// the other in Deno — so this is the client-side twin, kept for one purpose:
+// reject an obviously wrong file (a .exe renamed, a 40 MB scan) before a
+// phone spends its data budget uploading it, not as the security boundary.
+// The edge function enforces its own copy regardless of what this says.
+const ALLOWED_TYPES: Record<UploadKind, readonly string[]> = {
+  logo: ["image/jpeg", "image/png", "image/webp"],
+  avatar: ["image/jpeg", "image/png", "image/webp"],
+  receipt: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+}
+
+const MAX_BYTES: Record<UploadKind, number> = {
+  logo: 2 * 1024 * 1024,
+  avatar: 2 * 1024 * 1024,
+  receipt: 10 * 1024 * 1024,
+}
+
+const TYPE_MESSAGE: Record<UploadKind, string> = {
+  logo: "Choisissez une image (JPG, PNG ou WebP).",
+  avatar: "Choisissez une image (JPG, PNG ou WebP).",
+  receipt: "Choisissez une photo (JPG, PNG, WebP) ou un PDF.",
+}
+
+/**
+ * Type and size checks run before `uploadFile`, so a rejection is immediate
+ * and never costs an upload. Size is skipped for a receipt image
+ * specifically: `uploadFile` re-encodes it through `compressImage` before it
+ * ever reaches the network, and a phone photo routinely arrives at 8–15 MB
+ * raw while landing under 1 MB after compression — gating the raw size here
+ * would refuse the single most common way a receipt gets captured on this
+ * app. PDFs pass through `uploadFile` untouched, so they're still gated.
+ */
+export function validateUpload(file: File, kind: UploadKind): string | undefined {
+  const typeErr = validateFileType(file, ALLOWED_TYPES[kind], TYPE_MESSAGE[kind])
+  if (typeErr) return typeErr
+
+  const sizeIsSkipped = kind === "receipt" && file.type.startsWith("image/")
+  if (sizeIsSkipped) return undefined
+
+  const maxMb = MAX_BYTES[kind] / 1024 / 1024
+  return validateFileSize(file, MAX_BYTES[kind], `Fichier trop volumineux (${maxMb} Mo maximum).`)
 }
 
 const PUBLIC_BASE_URL = import.meta.env.VITE_R2_PUBLIC_BASE_URL as string | undefined

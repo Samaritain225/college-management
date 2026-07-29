@@ -2,13 +2,11 @@ import React, { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Upload, X, Save, Building, Calendar, Phone, MapPin, Lock } from "lucide-react"
 import { useSettings } from "@/lib/settings"
-import { uploadFile, deleteFile } from "@/lib/uploads"
+import { uploadFile, deleteFile, validateUpload } from "@/lib/uploads"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-
-const MAX_LOGO_BYTES = 2 * 1024 * 1024
 
 /** Read-only presentation for roles that can't edit — deliberately a summary,
  *  not a disabled form, so nothing suggests an action they can't take. */
@@ -130,12 +128,9 @@ function EditableIdentity() {
     e.target.value = "" // allow re-selecting the same file after an error
     if (!file) return
 
-    if (!file.type.startsWith("image/")) {
-      toast.error("Choisissez un fichier image (PNG ou JPG).")
-      return
-    }
-    if (file.size > MAX_LOGO_BYTES) {
-      toast.error("Image trop volumineuse. Choisissez un fichier de moins de 2 Mo.")
+    const err = validateUpload(file, "logo")
+    if (err) {
+      toast.error(err)
       return
     }
 
@@ -211,7 +206,12 @@ function EditableIdentity() {
   }
 
   return (
-    <form onSubmit={handleSave} className="space-y-6">
+    // noValidate: the college-name field below carries `required`, and
+    // without this the browser blocks submission natively before
+    // `handleSave` ever runs — the toast validation it contains would be
+    // unreachable for an empty field. Same failure diagnosed and fixed on
+    // UsersPage's two forms; see the comment there for how it was confirmed.
+    <form onSubmit={handleSave} className="space-y-6" noValidate>
       <Card className="border border-ink/10 bg-paper">
         <CardHeader>
           <CardTitle className="text-ink font-display font-semibold text-base">
