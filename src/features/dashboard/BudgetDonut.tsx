@@ -173,7 +173,10 @@ export function BudgetDonut({ totalPool, spentByCategory }: BudgetDonutProps) {
             sit beside the ring, not under it, so they never fight the hole
             for room. */}
         <div className="absolute inset-0 flex items-center justify-center text-center px-2 pointer-events-none">
-          <span className="text-xs sm:text-sm font-display font-bold text-ink tabular-nums text-balance leading-tight">
+          {/* 0.6375rem/0.74375rem: text-xs/text-sm reduced 15% — the ring's
+              hole is small and the full amount ("152 548 245 F CFA") needs
+              to fit without wrapping past two lines. */}
+          <span className="text-[0.6375rem] sm:text-[0.74375rem] font-display font-bold text-ink tabular-nums text-balance leading-tight">
             {formatMoney(active ? active.amount : totalSpent)}
           </span>
         </div>
