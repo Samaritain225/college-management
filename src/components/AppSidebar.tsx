@@ -100,17 +100,25 @@ export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
   const { collegeName, collegeLogo } = useSettings()
 
   const canManageUsers = userRole === "admin" || userRole === "super_admin"
+  const isInvestor = userRole === "investor"
 
-  const academicItems: NavEntry[] = [
-    { to: "/teachers", title: "Enseignants", icon: GraduationCap },
-    { to: "/students", title: "Élèves", icon: BookOpen },
-    { to: "/classes", title: "Classes", icon: School },
-  ]
+  // Investors have no business in Académique — their whole role is finance
+  // oversight, not the school's day-to-day. Mirrors the RoleRoute guards in
+  // routes.tsx; hiding the row here is convenience, the route is the gate.
+  const academicItems: NavEntry[] = isInvestor
+    ? []
+    : [
+        { to: "/teachers", title: "Enseignants", icon: GraduationCap },
+        { to: "/students", title: "Élèves", icon: BookOpen },
+        { to: "/classes", title: "Classes", icon: School },
+      ]
 
   const financeItems: NavEntry[] = [
     { to: "/expenses", title: "Dépenses", icon: Receipt },
     { to: "/categories", title: "Catégories", icon: FolderTree },
-    ...(canManageUsers ? [{ to: "/investors", title: "Investisseurs", icon: Users }] : []),
+    ...(canManageUsers || isInvestor
+      ? [{ to: "/investors", title: "Investisseurs", icon: Users }]
+      : []),
   ]
 
   const systemItems: NavEntry[] = [

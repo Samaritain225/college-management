@@ -67,6 +67,15 @@ function pickPrimaryRole(roleIds: string[]): string {
   return roleIds[0] ?? "investor"
 }
 
+/** Mirrors private.can_manage_finance() in SQL (20260725005537_initial_schema.sql:350).
+ *  The database is the real gate — this only keeps the UI from offering
+ *  actions RLS will refuse anyway. Checks every role held, not just the
+ *  primary one, to match the SQL exactly. */
+export function canManageFinance(user: AuthUser | null): boolean {
+  if (!user) return false
+  return user.roles.some((r) => r === "super_admin" || r === "admin" || r === "treasurer")
+}
+
 async function fetchAuthUser(supabaseUser: SupabaseUser): Promise<AuthUser> {
   const [{ data: profile }, { data: roleRows, error: rolesError }] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", supabaseUser.id).maybeSingle(),

@@ -133,10 +133,9 @@ export function AppShell() {
           className="print:h-auto print:overflow-visible print:w-auto"
           style={
             {
-              // 12.5rem, down from 14rem. The rail was wider than its longest
-              // label ("Investisseurs") needed, which opened a 44px trench
-              // between the last nav pixel and the content card.
-              "--sidebar-width": "12.5rem",
+              // 10.625rem — 15% narrower than the 12.5rem this was tuned to
+              // before (itself down from an original 14rem), at Sam's request.
+              "--sidebar-width": "10.625rem",
               "--header-height": "3.5rem",
             } as React.CSSProperties
           }

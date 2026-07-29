@@ -27,8 +27,14 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+// Desktop width is dead here — AppShell.tsx always wraps this provider and
+// overrides --sidebar-width inline, so SIDEBAR_WIDTH below never actually
+// renders. Left at the shadcn default rather than tuned, to avoid the false
+// signal of a "real" value nobody reads.
 const SIDEBAR_WIDTH = "16rem"
-const SIDEBAR_WIDTH_MOBILE = "18rem"
+// 30% narrower than the original 18rem — Sam's call, the mobile sheet felt
+// oversized for how little it holds.
+const SIDEBAR_WIDTH_MOBILE = "12.6rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 

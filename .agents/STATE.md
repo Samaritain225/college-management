@@ -7,10 +7,26 @@ Last updated 2026-07-29. Cap: 100 lines. See the compression protocol in
 
 - `docs/access-lifecycle-plan-2026-07-29.md` is the agreed plan for five asks:
   soft delete with a super-admin archive, attribution for deleted users, email
-  reuse rules, investor read-only, and expense notifications. Planned only,
-  nothing built. Build order is investor read-only first (no migration, no
-  deploy), then soft delete plus attribution plus email as one unit, then
-  notifications last.
+  reuse rules, investor read-only, and expense notifications. Build order is
+  investor read-only first, then soft delete plus attribution plus email as
+  one unit, then notifications last.
+- **Investor read-only (Part 4) is landed**, verified live with Test Investor
+  (`b9dc85ea`): `canManageFinance()` in `auth.tsx` mirrors
+  `private.can_manage_finance()` in SQL. `/teachers`, `/students`, `/classes`
+  now redirect investors to the dashboard (`RoleRoute` in `routes.tsx`);
+  `/investors` is open to them read-only. The sidebar hides Académique and
+  shows Investisseurs for investors. Expenses/categories hide their "create"
+  buttons; the investors list/detail hide edit and create. `InvestorsPage`
+  skips `listAdminUsers()` (the account-linking lookup) entirely for
+  non-managers — that endpoint is admin/treasurer/super_admin-only, so an
+  investor calling it always 403s. Parts 2, 3, 5 not started.
+- Also landed, unrelated to the plan but same session: the sidebar is 15%
+  narrower on desktop (`AppShell.tsx`, 12.5rem → 10.625rem) and 30% narrower
+  on mobile (`sidebar.tsx`'s `SIDEBAR_WIDTH_MOBILE`, 18rem → 12.6rem), and the
+  dashboard greeting dropped its trailing filler ("Prêt pour la journée
+  scolaire ?" etc.) down to just the name, at Sam's request. Desktop width is
+  set by `AppShell.tsx` inline, not `sidebar.tsx`'s `SIDEBAR_WIDTH` constant —
+  that constant is dead code for this app, left at the shadcn default.
 - Decided while planning: an investor sees **all** investors at their college,
   read-only, so no RLS change is needed; notifications are in-app only; a
   soft-deleted account's auth email is tombstoned so the address frees up,
@@ -23,43 +39,23 @@ Last updated 2026-07-29. Cap: 100 lines. See the compression protocol in
   identical either way.
 - Still undefined: whether "block" is a distinct action from deactivate, and
   whether a soft-deleted account should ever be restorable.
-- The last session's work (validators, delete, status badges) is still
-  **uncommitted** — 8 modified files plus `src/lib/validation.ts`.
 
 ## Recently landed
 
-- R2 uploads, split settings, the dashboard balance fix, server-side paging
-  for expenses and the activity feed, real URLs via react-router, the
-  y=48/x=28 shell datum, the expenses-page mobile pass (period filter fixed,
-  card list below `sm`, payee/method reach the detail sheet), and
-  `storage-sign` scoped by college with receipt deletes refused are all
-  shipped — see git log and `AGENTS.md` rather than this file for their
-  detail.
-- The period filter no longer turns balances into nonsense. Three stat figures
-  divided a period flow by an all-time total; the worst read "Solde Restant /
-  Découvert" in red on a solvent college. Filtered, that card is now "Flux net".
-- Migration history is aligned, nothing local-only or remote-only —
-  `supabase migration list` is the source of truth, not a count here.
+R2 uploads, split settings, the dashboard balance fix, server-side paging,
+real URLs via react-router, the expenses-page mobile pass, and `storage-sign`
+scoped by college are all shipped — see git log and `AGENTS.md`, not this
+file, for detail. Migration history is aligned; `supabase migration list` is
+the source of truth, not a count here.
 
-## Audits — both measured, both written down
+## Audits and past plans — pointers only, see the docs
 
-- `docs/perf-audit-2026-07-26.md` — network, payload and bundle. Headline:
-  reducing *parallel* round-trips is nearly worthless (10 multiplexed requests
-  ≈ 3, ~260 ms, because `Promise.all` over one HTTP/2 connection already
-  overlaps them) — a *sequential* step costs 5–10× more than an extra parallel one.
-- `docs/ui-audit-2026-07-26.md` — contrast, type, images, layout.
-- `docs/expenses-ux-benchmark-2026-07-27.md` and
-  `docs/expenses-page-plan-2026-07-27.md` — the expenses pages judged as a
-  user, six-phase plan.
-
-## Expenses page — Phases 1–4 and 6 landed 2026-07-27
-
-- Shipped: `expenses_page` v2 (migrations `20260727094500` and
-  `20260727095800`), sortable Date/Catégorie/Montant, a filter-respecting
-  total row, `formatDay()` for `fr-FR` day-only dates, and print/PDF via
-  `window.print()` instead of CSV at Sam's request. Detail is in the git log
-  and in the three `AGENTS.md` gotchas it produced.
-- Phase 5 (categories money columns) is planned, not started, waiting on Sam.
+- `docs/perf-audit-2026-07-26.md` (network/payload/bundle — sequential hops
+  cost 5–10× a parallel one), `docs/ui-audit-2026-07-26.md` (contrast/type/
+  images/layout), `docs/expenses-ux-benchmark-2026-07-27.md` +
+  `docs/expenses-page-plan-2026-07-27.md` (expenses UX, six-phase plan — 1–4
+  and 6 shipped 2026-07-27, phase 5 categories-money-columns still waiting on
+  Sam), `docs/access-lifecycle-plan-2026-07-29.md` (current, see above).
 - Not yet cleaned up: a "Test phase 2 verification" expense (12,345 F CFA,
   Administration, receipt `RECU-TEST-001`) from verifying the receipt fix
   in-browser — same bucket as the artifacts under "Blocking" below.
@@ -79,11 +75,7 @@ Last updated 2026-07-29. Cap: 100 lines. See the compression protocol in
   `useMatches()` breadcrumb first. Worth deciding before the next payload pass.
 - Artefacts from live verification, still real rows in the live project: a
   "Test audit" category (permanently in the dropdown, categories have no
-  delete UI) and a `test@college.ci` account. The "Probe Test" account from
-  the same testing has since been fully erased — see below.
-- The non-admin redirect off `/users` and `/investors` is still unexercised,
-  but no longer blocked: "Test Investor" (`b9dc85ea`) holds `investor` at this
-  college, so the redirect can now actually be driven.
+  delete UI) and a `test@college.ci` account.
 - CAPTCHA is off in Supabase Auth — no bot protection on login. Re-enable once
   deployed to Pages, which supplies the domain Turnstile needs.
 - Leaked-password protection is off. Dashboard setting, waiting on Sam.
@@ -107,26 +99,16 @@ Last updated 2026-07-29. Cap: 100 lines. See the compression protocol in
 
 ## Password policy and account safety, 2026-07-28 — landed and deployed
 
-- The real GoTrue policy on the hosted project (confirmed from Sam's live
-  rejection, not guessed): at least one lowercase, one uppercase, one digit,
-  one special character. No known minimum length — the policy doesn't state
-  one and there's no endpoint that reports it back. `UsersPage.tsx`'s
-  `passwordChecks()`/`PASSWORD_POLICY_MESSAGE` mirror this exactly; update
-  them by hand against the next real rejection if the Dashboard policy moves.
-  `ProfileSection.tsx`'s own self-service password form still only checks
-  length 8 — same latent mismatch, still not fixed.
-- `admin-users` is deployed with `checkCanActOn`, shared by deactivate and
-  DELETE: no account can act on itself, and a `super_admin` target needs a
-  `super_admin` caller. Deactivate remains "delete" in this app's everyday
-  vocabulary; DELETE is a genuine permanent erase, currently refused with 409
-  when `expenses`/`activity_log`/`investors` reference the profile. The
-  in-flight plan turns that 409 into a soft delete instead.
-- Users now show a derived status — "En attente" (never signed in),
-  "Actif", or "Désactivé" — read from GoTrue's `last_sign_in_at`, not a
-  separate flag. Purely informational: nothing blocks a pending account
-  from logging in. Verified live on a real account ("Test Investor," never
-  logged in) — showed "En attente" correctly. Detail view also shows last
-  sign-in time or "Jamais connecté".
+- GoTrue's real policy (confirmed from Sam's live rejection): one lowercase,
+  one uppercase, one digit, one special character, no known minimum length.
+  `UsersPage.tsx` mirrors this; `ProfileSection.tsx`'s self-service password
+  form still only checks length 8 — same latent mismatch, still not fixed.
+- `admin-users` deployed with `checkCanActOn` (no account acts on itself, a
+  `super_admin` target needs a `super_admin` caller) and a real DELETE,
+  refused with 409 when `expenses`/`activity_log`/`investors` reference the
+  profile — the in-flight plan turns that 409 into a soft delete instead.
+- Users show a derived status ("En attente"/"Actif"/"Désactivé") from
+  GoTrue's `last_sign_in_at` — purely informational, doesn't gate login.
 
 ## Decided, not yet built
 

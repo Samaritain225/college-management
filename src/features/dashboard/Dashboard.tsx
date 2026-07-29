@@ -76,11 +76,11 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
 
     let greetingText = ""
     if (currentHour >= 5 && currentHour < 12) {
-      greetingText = `Bon matin, ${firstName}. Prêt pour la journée scolaire ?`
+      greetingText = `Bon matin, ${firstName}.`
     } else if (currentHour >= 12 && currentHour < 18) {
       greetingText = `Bon après-midi, ${firstName}.`
     } else {
-      greetingText = `Bonsoir, ${firstName}. Bilan de la journée disponible.`
+      greetingText = `Bonsoir, ${firstName}.`
     }
     setRandomGreeting(greetingText)
   }, [user])

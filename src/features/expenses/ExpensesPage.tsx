@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import { useAuth } from "@/lib/auth"
+import { useAuth, canManageFinance } from "@/lib/auth"
 import { periodRange, type Period } from "@/lib/period"
 import {
   addCategory,
@@ -652,25 +652,31 @@ export function ExpensesPage({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {activeTab === "expenses" ? (
-            <Button
-              onClick={handleOpenCreateExpenseDialog}
-              className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs shrink-0"
-            >
-              <Plus className="size-4 shrink-0" />
-              Enregistrer une dépense
-            </Button>
-          ) : (
-            <Button
-              onClick={handleOpenCreateCategoryDialog}
-              className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
-            >
-              <FolderPlus className="size-4 shrink-0" />
-              Nouvelle catégorie
-            </Button>
-          )}
-        </div>
+        {/* Investors can read every expense/category — RLS already permits
+            it — but can't create either; can_manage_finance() in SQL would
+            refuse the insert anyway, so hiding the button just avoids a
+            trip to find that out. */}
+        {canManageFinance(user) && (
+          <div className="flex items-center gap-2">
+            {activeTab === "expenses" ? (
+              <Button
+                onClick={handleOpenCreateExpenseDialog}
+                className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs shrink-0"
+              >
+                <Plus className="size-4 shrink-0" />
+                Enregistrer une dépense
+              </Button>
+            ) : (
+              <Button
+                onClick={handleOpenCreateCategoryDialog}
+                className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
+              >
+                <FolderPlus className="size-4 shrink-0" />
+                Nouvelle catégorie
+              </Button>
+            )}
+          </div>
+        )}
       </header>
 
       {/* ----------------- TAB 1: EXPENSES VIEW ----------------- */}
@@ -1023,9 +1029,11 @@ export function ExpensesPage({
                       <div className="flex flex-col items-center justify-center space-y-1">
                         <FolderTree className="size-6 text-ink-soft/40 mb-1" />
                         <p className="text-xs font-display font-semibold text-ink">Aucune catégorie trouvée.</p>
-                        <p className="text-xs text-ink-soft">
-                          Cliquez sur 'Nouvelle catégorie' pour créer un poste budgétaire.
-                        </p>
+                        {canManageFinance(user) && (
+                          <p className="text-xs text-ink-soft">
+                            Cliquez sur 'Nouvelle catégorie' pour créer un poste budgétaire.
+                          </p>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

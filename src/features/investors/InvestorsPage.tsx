@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { StatCard } from "@/components/StatCard"
 import { useNavigate, useParams } from "react-router-dom"
+import { useAuth, canManageFinance } from "@/lib/auth"
 import { useSetPageTitle } from "@/lib/pageTitle"
 import { TablePager } from "@/components/TablePager"
 import { usePagedRows } from "@/lib/usePagedRows"
@@ -63,6 +64,8 @@ export function InvestorsPage({
   onChange,
   dbReady = true,
 }: InvestorsPageProps) {
+  const { user } = useAuth()
+  const canManage = canManageFinance(user)
   const [standings, setStandings] = useState<InvestorStanding[]>([])
   const [users, setUsers] = useState<LinkableUser[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -119,13 +122,16 @@ export function InvestorsPage({
   useEffect(() => {
     async function loadData() {
       setLoading(true)
-      await Promise.all([refresh(), loadUsers()])
+      // admin-users (the source for loadUsers) is admin/super_admin/treasurer
+      // only — investors reaching this page read-only would just 403 on
+      // every load for a list they can't act on anyway.
+      await Promise.all([refresh(), canManage ? loadUsers() : Promise.resolve()])
       setLoading(false)
     }
     if (dbReady) {
       loadData()
     }
-  }, [dbReady])
+  }, [dbReady, canManage])
 
   // Fetch contributions for selected investor when detail page is opened
   useEffect(() => {
@@ -315,20 +321,22 @@ export function InvestorsPage({
             <ArrowLeft className="size-4" />
             Retour aux investisseurs
           </Button>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                startEdit(selectedInvestor)
-                navigate("/investors")
-              }}
-              className="text-xs font-display flex items-center gap-1.5"
-            >
-              <Pencil className="size-3.5" />
-              Modifier l'investisseur
-            </Button>
-          </div>
+          {canManage && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  startEdit(selectedInvestor)
+                  navigate("/investors")
+                }}
+                className="text-xs font-display flex items-center gap-1.5"
+              >
+                <Pencil className="size-3.5" />
+                Modifier l'investisseur
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Profile Card Header */}
@@ -503,17 +511,19 @@ export function InvestorsPage({
             {totalInvestors} {totalInvestors > 1 ? "associés" : "associé"} · total convenu: {formatMoney(totalAgreed)}
           </p>
         </div>
-        <Button
-          onClick={() => setShowForm((s) => !s)}
-          className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
-        >
-          <UserPlus className="size-4 shrink-0" />
-          {showForm ? "Annuler" : "Nouvel investisseur"}
-        </Button>
+        {canManage && (
+          <Button
+            onClick={() => setShowForm((s) => !s)}
+            className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
+          >
+            <UserPlus className="size-4 shrink-0" />
+            {showForm ? "Annuler" : "Nouvel investisseur"}
+          </Button>
+        )}
       </header>
 
       {/* Create form */}
-      {showForm && (
+      {canManage && showForm && (
         <Card className="border border-ink/10 bg-paper">
           <CardHeader>
             <CardTitle className="text-ink font-display font-semibold text-base">Enregistrer un investisseur</CardTitle>
@@ -659,7 +669,7 @@ export function InvestorsPage({
             </TableHeader>
             <TableBody>
               {investorPaging.pageRows.map((s) => {
-                const isEditing = editingId === s.id
+                const isEditing = canManage && editingId === s.id
                 return (
                   <TableRow key={s.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
                     {/* Name */}
@@ -761,15 +771,17 @@ export function InvestorsPage({
                             >
                               <Eye className="size-4" />
                             </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-ink-soft hover:text-teal-950 hover:bg-teal-100/50"
-                              onClick={() => startEdit(s)}
-                              title="Modifier"
-                            >
-                              <Pencil className="size-4" />
-                            </Button>
+                            {canManage && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-ink-soft hover:text-teal-950 hover:bg-teal-100/50"
+                                onClick={() => startEdit(s)}
+                                title="Modifier"
+                              >
+                                <Pencil className="size-4" />
+                              </Button>
+                            )}
                           </>
                         )}
                       </div>

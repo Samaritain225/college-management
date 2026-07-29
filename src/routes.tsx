@@ -68,9 +68,33 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard />, handle: { label: "Tableau de bord" } },
 
-      { path: "teachers", element: <TeachersPage />, handle: { label: "Enseignants" } },
-      { path: "students", element: <StudentsPage />, handle: { label: "Élèves" } },
-      { path: "classes", element: <ClassesPage />, handle: { label: "Classes" } },
+      {
+        path: "teachers",
+        handle: { label: "Enseignants" },
+        element: (
+          <RoleRoute roles={["super_admin", "admin", "treasurer", "teacher"]}>
+            <TeachersPage />
+          </RoleRoute>
+        ),
+      },
+      {
+        path: "students",
+        handle: { label: "Élèves" },
+        element: (
+          <RoleRoute roles={["super_admin", "admin", "treasurer", "teacher"]}>
+            <StudentsPage />
+          </RoleRoute>
+        ),
+      },
+      {
+        path: "classes",
+        handle: { label: "Classes" },
+        element: (
+          <RoleRoute roles={["super_admin", "admin", "treasurer", "teacher"]}>
+            <ClassesPage />
+          </RoleRoute>
+        ),
+      },
 
       { path: "expenses", element: <ExpensesPage mode="expenses" />, handle: { label: "Dépenses" } },
       {
@@ -86,7 +110,7 @@ export const router = createBrowserRouter([
         path: "investors",
         handle: { label: "Investisseurs" },
         element: (
-          <RoleRoute roles={["admin", "super_admin"]}>
+          <RoleRoute roles={["admin", "super_admin", "treasurer", "investor"]}>
             <Outlet />
           </RoleRoute>
         ),
