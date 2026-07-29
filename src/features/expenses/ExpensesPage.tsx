@@ -1,4 +1,5 @@
 import { PeriodFilter } from "@/components/PeriodFilter"
+import { AttachmentPreview } from "@/components/AttachmentPreview"
 import { StatCard } from "@/components/StatCard"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -1504,9 +1505,11 @@ export function ExpensesPage({
                           <span className="font-display font-semibold">{selectedExpense.receipt_key}</span>
                         </p>
                       ) : publicUrl(selectedExpense.receipt_key) ? (
-                        <a href={publicUrl(selectedExpense.receipt_key)!} target="_blank" rel="noreferrer" className="text-sm font-display font-semibold text-teal-950 underline underline-offset-2">
-                          Ouvrir la pièce jointe
-                        </a>
+                        <AttachmentPreview
+                          url={publicUrl(selectedExpense.receipt_key)!}
+                          objectKey={selectedExpense.receipt_key}
+                          alt={`Pièce justificative pour ${selectedExpense.description}`}
+                        />
                       ) : <p className="text-xs text-ink-soft">Pièce jointe enregistrée, mais indisponible dans cette configuration.</p>}
                     </div>
                   ) : (
