@@ -1,3 +1,4 @@
+// Verified against the shadcn Select and Button registry patterns on 2026-07-29.
 import { PeriodFilter } from "@/components/PeriodFilter"
 import { AttachmentPreview } from "@/components/AttachmentPreview"
 import { StatCard } from "@/components/StatCard"
@@ -292,7 +293,6 @@ export function ExpensesPage({
       categoriesCache = cats
       writeCache(CATEGORIES_CACHE_KEY, cats)
       setCategories(cats)
-      if (!categoryId && cats[0]) setCategoryId(cats[0].id)
     } catch (e) {
       console.error(e)
     }
@@ -346,7 +346,7 @@ export function ExpensesPage({
   }, [selectedCategoryDetails, selectedPeriod, dbReady])
 
   function resetExpenseForm() {
-    setCategoryId(categories[0]?.id || "")
+    setCategoryId("")
     setNewCategoryName("")
     setNewCategoryDesc("")
     setAmount("")
@@ -1316,7 +1316,7 @@ export function ExpensesPage({
                 variant="outline"
                 onClick={() => receiptInputRef.current?.click()}
                 disabled={isSubmitting}
-                className="w-full justify-start overflow-hidden max-md:h-11"
+                className="w-full cursor-pointer justify-start overflow-hidden max-md:h-11"
                 aria-label={receiptFile ? `Modifier la pièce justificative : ${receiptFile.name}` : "Ajouter un justificatif"}
                 title={receiptFile?.name}
               >
