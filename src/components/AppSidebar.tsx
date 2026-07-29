@@ -163,14 +163,21 @@ export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
   ]
 
   return (
-    <Sidebar collapsible="icon" {...props}>
-      {/* h-10, not py-4. The inset sidebar starts 8px down, so a 40px header
-          puts this rule at y=48 — exactly where the content card's top edge
-          sits. The two then read as one horizontal across the whole app
-          instead of two that miss each other by 25px.
+    // Matches the exact `group-data-[side=left]:border-r` modifier chain the
+    // primitive uses for the "sidebar" variant — a plain `border-r-0` has a
+    // different modifier chain, so tailwind-merge doesn't treat it as the
+    // same utility and won't dedupe it; the two would just coexist with the
+    // primitive's often winning on stylesheet order. That border draws at
+    // full-strength text colour (not a subtle divider), independent of
+    // anything else in this file — --color-sidebar's tint marks the edge
+    // now, so this would just double it up as a second, harsher line.
+    <Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0" {...props}>
+      {/* h-10, not py-4, so this row keeps the same height as the content
+          header beside it — no border needed to prove it, the sidebar's own
+          tint against the content card does that.
           px-5 puts the logo on x=28, the same rail as the nav icons and the
           group labels; at px-6 it sat 4px right of everything below it. */}
-      <SidebarHeader className="h-10 shrink-0 justify-center border-b border-ink/10 px-5 py-0 group-data-[collapsible=icon]:px-0">
+      <SidebarHeader className="h-10 shrink-0 justify-center px-5 py-0 group-data-[collapsible=icon]:px-0">
         {/* Collapsed, the rail is 50px and the mark is 32px, so any horizontal
             padding pushes it past the edge — it was overflowing by 6px before
             this header was touched. Drop the padding and centre it instead. */}

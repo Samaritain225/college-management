@@ -97,8 +97,16 @@
      or Tailwind v4 never generates bg-sidebar/text-sidebar-foreground/etc.
      as real utilities. Without this, the mobile sheet's `bg-sidebar` was a
      no-op, leaving the sheet fully transparent over its own dialog
-     backdrop — the "sidebar looks blue and see-through in tablet mode" bug. */
-  --color-sidebar: #ffffff;
+     backdrop — the "sidebar looks blue and see-through in tablet mode" bug.
+
+     A step below --color-paper (#ffffff) rather than identical to it: with
+     the two flush and no gap between them at desktop widths, matching them
+     exactly meant the only thing marking the boundary was a hairline
+     border — which read as a stray line rather than two surfaces. The tint
+     is faint enough that neither side reads as "gray", but the seam now
+     shows through colour contrast and the content card's shadow instead
+     of a drawn line. */
+  --color-sidebar: #f8fafc;
   --color-sidebar-foreground: #475569;
   --color-sidebar-primary: #042f2e;
   --color-sidebar-primary-foreground: #ffffff;
@@ -220,12 +228,12 @@
   --color-chart-4: #c98500;
   --color-chart-5: #3987e5;
 
-  /* Sidebar — same surface as --color-paper (#0d1117), not a different
-     near-black. They used to be two unrelated dark palettes (this one was
-     Tailwind's slate-900) sitting flush against each other with a visible
-     seam. Separated only by a hairline border now, matching how every
-     other panel in the app (bg-paper + border-ink/10) reads. */
-  --color-sidebar: #0d1117;
+  /* A step below --color-paper (#0d1117) — same reasoning as the light-mode
+     token above: at desktop widths the sidebar and content sit flush with
+     no gap, so identical surfaces left the seam with nothing but a hairline
+     border to read by. Recessed very slightly instead, so the boundary
+     shows through colour contrast and the content card's shadow. */
+  --color-sidebar: #0a0d12;
   --color-sidebar-foreground: #94a3b8;
   --color-sidebar-primary: #ccfbf1;
   --color-sidebar-primary-foreground: #042f2e;
