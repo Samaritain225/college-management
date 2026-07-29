@@ -102,16 +102,20 @@ export function BudgetDonut({ totalPool, spentByCategory }: BudgetDonutProps) {
   const active = hovered !== null ? slices[hovered] : null
 
   return (
-    // Side-by-side only at xl. This card is 7 of 12 columns inside a max-w-5xl
-    // shell with a sidebar beside it, so a `sm:` breakpoint measures the
-    // viewport while the column stays ~300px — wide enough to look fine in the
-    // markup and far too narrow in practice, which clipped the amounts.
-    <div className="flex flex-col xl:flex-row xl:items-center gap-6">
-      <div className="shrink-0 mx-auto xl:mx-0 flex flex-col items-center gap-2">
-       <div className="relative">
+    // Ring and label sit side by side at every width now, with the legend
+    // below spanning the card's full width — not the ring-left/legend-right
+    // split this used to be. Two things drove that: this card sits in a grid
+    // row next to Activités récentes and gets stretched to match its height,
+    // which the old layout just left empty; and the legend's amounts used to
+    // share horizontal space with the ring in a squeezed side column at
+    // in-between widths (the `xl:` breakpoint band-aid, since removed), where
+    // now they get the whole card's width to themselves.
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-5">
+       <div className="relative shrink-0">
         <svg
           viewBox="0 0 180 180"
-          className="h-44 w-44 xl:h-48 xl:w-48 -rotate-90"
+          className="h-28 w-28 sm:h-32 sm:w-32 -rotate-90"
           role="img"
           aria-label={`Répartition du budget : ${formatMoney(totalSpent)} dépensés sur ${formatMoney(totalPool)}`}
         >
@@ -165,18 +169,17 @@ export function BudgetDonut({ totalPool, spentByCategory }: BudgetDonutProps) {
           ))}
         </svg>
 
-        {/* Centre carries the amount alone — the label and ratio sit under the
-            ring, where they have the card's full width instead of the hole's
-            ~120px. Swaps to the hovered category rather than floating a tooltip
-            box, which would overflow this column when it is stacked. */}
-        <div className="absolute inset-0 flex items-center justify-center text-center px-3 pointer-events-none">
-          <span className="text-sm font-display font-bold text-ink tabular-nums text-balance leading-tight">
+        {/* Centre still carries the amount alone — at this smaller ring size
+            the hole is tighter, so the label/ratio staying outside it (now
+            beside, not under) is what keeps both legible. */}
+        <div className="absolute inset-0 flex items-center justify-center text-center px-2 pointer-events-none">
+          <span className="text-xs sm:text-sm font-display font-bold text-ink tabular-nums text-balance leading-tight">
             {formatMoney(active ? active.amount : totalSpent)}
           </span>
         </div>
        </div>
 
-        <div className="text-center max-w-[12rem]">
+        <div className="min-w-0">
           <p className="text-2xs font-display font-semibold uppercase tracking-wider text-ink-soft truncate">
             {active ? active.name : "Dépensé"}
           </p>
@@ -186,7 +189,7 @@ export function BudgetDonut({ totalPool, spentByCategory }: BudgetDonutProps) {
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 grid grid-cols-1 gap-y-2 text-xs">
+      <div className="grid grid-cols-1 gap-y-2 text-xs">
         {slices.map((s, i) => (
           <div
             key={s.name}
