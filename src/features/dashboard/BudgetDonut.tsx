@@ -111,11 +111,11 @@ export function BudgetDonut({ totalPool, spentByCategory }: BudgetDonutProps) {
     // in-between widths (the `xl:` breakpoint band-aid, since removed), where
     // now they get the whole card's width to themselves.
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-5">
+      <div className="flex items-center gap-6">
        <div className="relative shrink-0">
         <svg
           viewBox="0 0 180 180"
-          className="h-28 w-28 sm:h-32 sm:w-32 -rotate-90"
+          className="h-32 w-32 sm:h-40 sm:w-40 -rotate-90"
           role="img"
           aria-label={`Répartition du budget : ${formatMoney(totalSpent)} dépensés sur ${formatMoney(totalPool)}`}
         >
@@ -169,9 +169,9 @@ export function BudgetDonut({ totalPool, spentByCategory }: BudgetDonutProps) {
           ))}
         </svg>
 
-        {/* Centre still carries the amount alone — at this smaller ring size
-            the hole is tighter, so the label/ratio staying outside it (now
-            beside, not under) is what keeps both legible. */}
+        {/* Centre still carries the amount alone — the category name/ratio
+            sit beside the ring, not under it, so they never fight the hole
+            for room. */}
         <div className="absolute inset-0 flex items-center justify-center text-center px-2 pointer-events-none">
           <span className="text-xs sm:text-sm font-display font-bold text-ink tabular-nums text-balance leading-tight">
             {formatMoney(active ? active.amount : totalSpent)}
