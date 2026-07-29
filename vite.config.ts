@@ -3,12 +3,18 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import { readFileSync } from 'fs'
+import { cloudflare } from '@cloudflare/vite-plugin'
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'))
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // cloudflare() reads wrangler.jsonc and wires `vite dev`/`vite build` to
+  // the Worker's static-assets config — imported but never added to this
+  // array is why `tsc -b` (noUnusedLocals) was failing the build before
+  // this merge, which is very likely why the Worker deploy was never
+  // actually finished.
+  plugins: [cloudflare(), react(), tailwindcss()],
   define: {
     // Single source of truth for the version shown in Paramètres → À propos,
     // so it can't drift from package.json the way a hardcoded string does.

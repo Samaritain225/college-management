@@ -1,9 +1,6 @@
-name: Deploy to Cloudflare Pages
+name: Deploy to Cloudflare Workers
 
-# Production only — a push to main is the only thing that ships. No preview
-# deployments for other branches/PRs (kept simple on purpose; add a second
-# job with `branch: ${{ github.head_ref }}` later if preview links become
-# worth the extra Cloudflare Pages builds).
+# Production only — a push to main is the only thing that ships.
 on:
   push:
     branches: [main]
@@ -18,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      deployments: write
     steps:
       - uses: actions/checkout@v4
 
@@ -31,26 +27,24 @@ jobs:
 
       # Type-check + build. tsc -b runs as part of `npm run build` (see
       # package.json) — a type error fails the deploy here, same as it
-      # would locally, instead of shipping broken JS.
+      # would locally, instead of shipping broken JS. @cloudflare/vite-plugin
+      # (wired into vite.config.ts) resolves wrangler.jsonc during this step
+      # and writes dist/wrangler.json, which the deploy step below reads.
       - run: npm run build
         env:
-          # These four are build-time only — Vite inlines them into the
-          # bundle, so they must be present now, not just in Cloudflare's
-          # runtime env. All four are documented as public/safe to expose
-          # in .env.example (publishable key, Turnstile *site* key, a
-          # public R2 read base, and the project URL) — real secrets
-          # (service_role, R2 write credentials) never touch this file or
-          # any Vite env var, by design; see .env.example.
+          # Build-time only — Vite inlines these into the bundle, so they
+          # must be present now, not just at runtime. All four are
+          # documented as public/safe to expose in .env.example
+          # (publishable key, Turnstile *site* key, a public R2 read base,
+          # and the project URL) — real secrets (service_role, R2 write
+          # credentials) never touch this file or any Vite env var.
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
           VITE_R2_PUBLIC_BASE_URL: ${{ vars.VITE_R2_PUBLIC_BASE_URL }}
 
-      - uses: cloudflare/pages-action@v1
+      - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: college-budget
-          directory: dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          branch: main
+          command: deploy
