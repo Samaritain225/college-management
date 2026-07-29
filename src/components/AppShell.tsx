@@ -146,9 +146,9 @@ export function AppShell() {
               itself with `print:hidden` too — this is the shell's half of
               that contract. */}
           <div className="print:hidden">
-            <AppSidebar variant="inset" userRole={user?.role} />
+            <AppSidebar variant="sidebar" userRole={user?.role} />
           </div>
-          <SidebarInset className="border-0 bg-paper md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:border-0 md:peer-data-[variant=inset]:shadow-none">
+          <SidebarInset className="border-0 bg-paper">
             <div className="print:hidden">
               <Header />
             </div>
