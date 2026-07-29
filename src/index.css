@@ -320,6 +320,24 @@ main {
   animation: none !important;
 }
 
+/* Theme toggle crossfade — scoped to `.theme-transition` (set on <html> only
+   for the duration of the toggle, see lib/theme.tsx) so it doesn't reopen the
+   root transition the rules above deliberately turned off for navigation.
+   Same easing curve as the page-slide transitions below, for one consistent
+   feel across the app's two view-transition uses. */
+@keyframes theme-fade-out {
+  to { opacity: 0; }
+}
+@keyframes theme-fade-in {
+  from { opacity: 0; }
+}
+.theme-transition::view-transition-old(root) {
+  animation: 220ms cubic-bezier(0.16, 1, 0.3, 1) both theme-fade-out !important;
+}
+.theme-transition::view-transition-new(root) {
+  animation: 220ms cubic-bezier(0.16, 1, 0.3, 1) both theme-fade-in !important;
+}
+
 /* Keyframes for sliding transitions */
 @keyframes slide-to-left {
   to { transform: translateX(-100%); opacity: 0; }

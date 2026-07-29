@@ -7,7 +7,6 @@
 
 import { Link } from "react-router-dom"
 import { useAuth } from "@/lib/auth"
-import { useTheme } from "@/lib/theme"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,9 +15,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { LogOut, Bell, User, Sun, Moon } from "lucide-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { LogOut, Bell, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { publicUrl } from "@/lib/uploads"
 
 function getInitials(name: string): string {
   return name
@@ -46,7 +46,6 @@ function getRoleLabel(role: string): string {
 
 export function ActiveUserBar() {
   const { user, logout } = useAuth()
-  const { theme, toggleTheme } = useTheme()
 
   if (!user) return null
 
@@ -62,26 +61,11 @@ export function ActiveUserBar() {
         <Bell className="size-4" />
       </Button>
 
-      {/* Theme toggle — Moon in light mode, Sun in dark mode */}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={toggleTheme}
-        className="relative h-9 w-9 rounded-full text-ink-soft hover:text-ink hover:bg-teal-100/50 transition-colors"
-        title={theme === "light" ? "Passer en mode sombre" : "Passer en mode clair"}
-        aria-label={theme === "light" ? "Passer en mode sombre" : "Passer en mode clair"}
-      >
-        {theme === "light" ? (
-          <Moon className="size-4" />
-        ) : (
-          <Sun className="size-4" />
-        )}
-      </Button>
-
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button className="flex items-center rounded-full hover:bg-teal-100/50 p-0.5 transition-colors outline-hidden cursor-pointer">
             <Avatar className="h-9 w-9 border border-ink/10">
+              <AvatarImage src={publicUrl(user.avatarKey) ?? undefined} alt="" />
               <AvatarFallback className="bg-teal-100 text-teal-950 font-display font-medium text-sm">
                 {getInitials(user.name)}
               </AvatarFallback>

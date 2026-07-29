@@ -133,9 +133,10 @@ export function AppShell() {
           className="print:h-auto print:overflow-visible print:w-auto"
           style={
             {
-              // 10.625rem — 15% narrower than the 12.5rem this was tuned to
-              // before (itself down from an original 14rem), at Sam's request.
-              "--sidebar-width": "10.625rem",
+              // 12rem — nudged back up from 10.625rem (15% narrower than the
+              // 12.5rem this was tuned to before) because "Tableau de bord"
+              // was clipping to "Tableau de ...".
+              "--sidebar-width": "12rem",
               "--header-height": "3.5rem",
             } as React.CSSProperties
           }

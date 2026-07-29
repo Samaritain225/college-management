@@ -38,7 +38,28 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme])
 
   function toggleTheme() {
-    setTheme((prev) => (prev === "light" ? "dark" : "light"))
+    const flip = () => setTheme((prev) => (prev === "light" ? "dark" : "light"))
+
+    // A flip with no transition at all reads as a glitch, not a choice — but
+    // this is a quick-check tool on weak connections, so the crossfade is the
+    // browser's native View Transition rather than a hand-rolled animation:
+    // no extra JS on the critical path, no per-element transition classes to
+    // maintain, and it's automatically skipped by browsers that don't support
+    // it (Safari/Firefox as of writing just flip instantly, same as before).
+    const supportsViewTransitions = "startViewTransition" in document
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    if (supportsViewTransitions && !prefersReducedMotion) {
+      // Scopes the crossfade CSS (`.theme-transition::view-transition-*` in
+      // index.css) to just this transition — the root view-transition is
+      // otherwise deliberately disabled so page navigation only animates
+      // `main-content`, not the whole document.
+      const root = document.documentElement
+      root.classList.add("theme-transition")
+      const transition = document.startViewTransition(flip)
+      transition.finished.finally(() => root.classList.remove("theme-transition"))
+    } else {
+      flip()
+    }
   }
 
   return (

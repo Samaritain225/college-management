@@ -10,6 +10,8 @@ import {
   School,
   UserCog,
   FolderTree,
+  Sun,
+  Moon,
 } from "lucide-react"
 import {
   Sidebar,
@@ -24,6 +26,7 @@ import {
 } from "@/components/ui/sidebar"
 import { useSettings } from "@/lib/settings"
 import { useDirectionalNavigate } from "@/lib/useDirectionalNavigate"
+import { useTheme } from "@/lib/theme"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   /** The authenticated user's role — controls which nav items are visible. */
@@ -70,16 +73,46 @@ function NavItem({ to, title, icon: Icon }: NavEntry) {
   )
 }
 
+/**
+ * A sidebar row that toggles the theme instead of navigating — same shape as
+ * `NavItem` so it reads as one more row in the Système group, not a stray
+ * control. Lives here rather than in the header icon row (its previous spot)
+ * because a row of look-alike icon buttons gave it no visual cue that it was
+ * a settings toggle rather than another notification-style action.
+ */
+function ThemeToggleItem() {
+  const { theme, toggleTheme } = useTheme()
+  const isDark = theme === "dark"
+  const label = isDark ? "Mode clair" : "Mode sombre"
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        tooltip={label}
+        onClick={toggleTheme}
+        className="w-full justify-start gap-3 transition-colors text-ink-soft hover:bg-teal-100/50 hover:text-teal-950"
+      >
+        {isDark ? <Sun className="size-4 shrink-0" /> : <Moon className="size-4 shrink-0" />}
+        <span className="group-data-[collapsible=icon]:hidden font-display">{label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  )
+}
+
 function NavGroup({
   label,
   items,
   className,
+  after,
 }: {
   label: string
   items: NavEntry[]
   className?: string
+  /** Extra rows appended after the nav items — e.g. the theme toggle, which
+   *  isn't a route so it can't be a `NavEntry`. */
+  after?: React.ReactNode
 }) {
-  if (items.length === 0) return null
+  if (items.length === 0 && !after) return null
   return (
     <SidebarGroup className={`p-0 space-y-1 ${className ?? ""}`}>
       <SidebarGroupLabel className="text-xs font-display font-semibold text-ink-soft/70 uppercase tracking-wider px-2 group-data-[collapsible=icon]:hidden">
@@ -90,6 +123,7 @@ function NavGroup({
           {items.map((item) => (
             <NavItem key={item.to} {...item} />
           ))}
+          {after}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
@@ -121,9 +155,11 @@ export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
       : []),
   ]
 
+  // Paramètres and the theme toggle render via `after` below, not in this
+  // list, so the toggle can sit between Utilisateurs and Paramètres — order
+  // in this array alone can't put a non-route row in the middle of it.
   const systemItems: NavEntry[] = [
     ...(canManageUsers ? [{ to: "/users", title: "Utilisateurs", icon: UserCog }] : []),
-    { to: "/settings", title: "Paramètres", icon: Settings },
   ]
 
   return (
@@ -163,7 +199,17 @@ export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
 
         <NavGroup label="Académique" items={academicItems} />
         <NavGroup label="Finances" items={financeItems} />
-        <NavGroup label="Système" items={systemItems} className="mt-auto" />
+        <NavGroup
+          label="Système"
+          items={systemItems}
+          className="mt-auto"
+          after={
+            <>
+              <ThemeToggleItem />
+              <NavItem to="/settings" title="Paramètres" icon={Settings} />
+            </>
+          }
+        />
       </SidebarContent>
     </Sidebar>
   )

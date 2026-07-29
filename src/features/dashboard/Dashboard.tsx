@@ -13,7 +13,7 @@ import {
   type MonthBucket,
   type UserActivityLog,
 } from "@/lib/queries"
-import { Sun, Moon, Venus, Mars, Wallet, Coins, Scale, CreditCard } from "lucide-react"
+import { Sun, Moon, Wallet, Coins, Scale, CreditCard } from "lucide-react"
 import { readCache, writeCache } from "@/lib/persistentCache"
 
 interface ChartDataPoint {
@@ -47,7 +47,7 @@ let dashboardCache: DashboardCacheData | null = readCache<DashboardCacheData>(CA
 // navigate away, so returning to it refetches on mount anyway.
 export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
   const { user } = useAuth()
-  const [period, setPeriod] = useState<Period>("all")
+  const [period, setPeriod] = useState<Period>("this_month")
   const [pool, setPool] = useState(dashboardCache?.pool ?? 0)
   const [baseContributed, setBaseContributed] = useState(dashboardCache?.baseContributed ?? 0)
   const [baseResources, setBaseResources] = useState(dashboardCache?.baseResources ?? 0)
@@ -163,8 +163,11 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
   useEffect(() => {
     const now = new Date()
     const dataPoints = Array.from({ length: 6 }).map((_, i) => {
-      const d = new Date()
-      d.setMonth(now.getMonth() - (5 - i))
+      // Day pinned to 1 before shifting months: setMonth() on the current
+      // day-of-month overflows into the next month whenever the target month
+      // has fewer days (eg. today the 29th minus 5 months lands on a
+      // 28-day February, which rolls forward to March and duplicates it).
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1)
       return {
         label: d.toLocaleDateString("fr-FR", { month: "short" }),
         monthKey: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
@@ -352,101 +355,6 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
         />
       </div>
 
-      {/* School Statistics (Enseignants, Élèves, Classes) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Card 1: Élèves */}
-        <Card className="border-ink/10 bg-paper p-6 flex flex-col items-center justify-between text-center min-h-[220px]">
-          <div className="w-full text-left">
-            <h4 className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Registre Élèves</h4>
-          </div>
-          
-          <div className="relative h-24 w-24 my-2 shrink-0">
-            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 64 64">
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="currentColor" className="text-ink/10" strokeWidth="4" />
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-terracotta-600)" strokeWidth="4" strokeDasharray="84.95 78.41" strokeDashoffset="0" />
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-teal-950)" strokeWidth="4" strokeDasharray="78.41 84.95" strokeDashoffset="-84.95" />
-              <text x="32" y="32" textAnchor="middle" className="fill-ink font-display font-bold text-xs" transform="rotate(90 32 32)">420</text>
-              <text x="32" y="42" textAnchor="middle" className="fill-ink-soft font-sans text-3xs" transform="rotate(90 32 32)">Élèves</text>
-            </svg>
-          </div>
-
-          <div className="flex gap-3 pt-2 border-t border-ink/10 w-full justify-center text-ink-soft text-xs font-display font-semibold">
-            <div className="flex items-center gap-1 whitespace-nowrap">
-              <Venus className="size-4 text-terracotta-600 shrink-0" />
-              <span>218 Filles (52%)</span>
-            </div>
-            <div className="flex items-center gap-1 whitespace-nowrap">
-              <Mars className="size-4 text-teal-950 shrink-0" />
-              <span>202 Garçons (48%)</span>
-            </div>
-          </div>
-        </Card>
-
-        {/* Card 2: Enseignants */}
-        <Card className="border-ink/10 bg-paper p-6 flex flex-col items-center justify-between text-center min-h-[220px]">
-          <div className="w-full text-left">
-            <h4 className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Enseignants</h4>
-          </div>
-          
-          <div className="relative h-24 w-24 my-2 shrink-0">
-            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 64 64">
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="currentColor" className="text-ink/10" strokeWidth="4" />
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-teal-950)" strokeWidth="4" strokeDasharray="89.85 73.51" strokeDashoffset="0" />
-              <circle cx="32" cy="32" r="26" fill="transparent" stroke="var(--color-terracotta-600)" strokeWidth="4" strokeDasharray="73.51 89.85" strokeDashoffset="-89.85" />
-              <text x="32" y="32" textAnchor="middle" className="fill-ink font-display font-bold text-xs" transform="rotate(90 32 32)">18</text>
-              <text x="32" y="42" textAnchor="middle" className="fill-ink-soft font-sans text-3xs" transform="rotate(90 32 32)">Actifs</text>
-            </svg>
-          </div>
-
-          <div className="flex gap-3 pt-2 border-t border-ink/10 w-full justify-center text-ink-soft text-xs font-display font-semibold">
-            <div className="flex items-center gap-1 whitespace-nowrap">
-              <Mars className="size-4 text-teal-950 shrink-0" />
-              <span>10 Hommes (55%)</span>
-            </div>
-            <div className="flex items-center gap-1 whitespace-nowrap">
-              <Venus className="size-4 text-terracotta-600 shrink-0" />
-              <span>8 Femmes (45%)</span>
-            </div>
-          </div>
-        </Card>
-
-        {/* Card 3: Classes — per-level mini bar chart */}
-        <Card className="border-ink/10 bg-paper p-6 flex flex-col justify-between min-h-[220px]">
-          <h4 className="text-xs font-display font-semibold text-ink-soft uppercase tracking-wider">Niveaux & Classes</h4>
-
-          <div className="w-full space-y-1.5 py-2 flex-1">
-            {([
-              { label: "6ème",        count: 2, max: 2, color: "var(--color-teal-950)" },
-              { label: "5ème",        count: 2, max: 2, color: "var(--color-teal-900)" },
-              { label: "4ème",        count: 1, max: 2, color: "var(--color-terracotta-600)" },
-              { label: "3ème",        count: 2, max: 2, color: "var(--color-positive)" },
-              { label: "2nde",        count: 2, max: 2, color: "var(--color-teal-950)" },
-              { label: "1ère",        count: 2, max: 2, color: "var(--color-terracotta-600)" },
-              { label: "Terminale",   count: 1, max: 2, color: "var(--color-negative)" },
-            ] as { label: string; count: number; max: number; color: string }[]).map(({ label, count, max, color }) => (
-              <div key={label} className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                <span className="w-16 shrink-0 text-ink font-display text-xs font-semibold">{label}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-teal-100/60 overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${(count / max) * 100}%`, backgroundColor: color }}
-                  />
-                </div>
-                <span className="w-10 text-right text-ink-soft text-xs font-display font-semibold shrink-0">
-                  {count} cl.
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-between pt-2 border-t border-ink/10 text-ink-soft text-xs font-display font-semibold">
-            <span>12 classes · 7 niveaux</span>
-            <span>35 él. / cl. moy.</span>
-          </div>
-        </Card>
-      </div>
-
       {/* Cumulative Financial Progress Area Chart */}
       <Card className="border-ink/10 bg-paper p-6 space-y-4 relative">
         <style>{`
@@ -616,7 +524,11 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
           </CardHeader>
           <CardContent className="px-6 pb-6 pt-0">
             {byCategory.length > 0 ? (
-              <BudgetDonut totalPool={resources} spentByCategory={byCategory} />
+              // Always all-time, unlike the KPI strip above: `byCategory` has
+              // no monthly breakdown to filter by, so pairing it with the
+              // period-scoped `resources` produced percentages past 100% and
+              // a negative "Restant" under anything but "Toutes les périodes".
+              <BudgetDonut totalPool={baseResources} spentByCategory={byCategory} />
             ) : (
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <p className="text-sm font-display font-medium text-ink">Aucune dépense enregistrée pour le moment.</p>
