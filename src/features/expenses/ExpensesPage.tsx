@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -18,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -84,10 +86,11 @@ import {
   TrendingUp,
   User,
   Wallet,
+  X,
   XCircle,
   Paperclip,
 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 
 function formatAmountInput(val: string): string {
@@ -147,6 +150,7 @@ export function ExpensesPage({
   const [payee, setPayee] = useState("")
   const [paymentMethod, setPaymentMethod] = useState<"" | "cash" | "mobile_money" | "bank_transfer" | "other">("")
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const receiptInputRef = useRef<HTMLInputElement>(null)
   const [spentAtDate, setSpentAtDate] = useState<Date | undefined>(startOfToday())
   const [fieldErrors, setFieldErrors] = useState<{
     category?: string
@@ -1065,18 +1069,34 @@ export function ExpensesPage({
           mobile URL bar expanded, which is not what the user is looking at. */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent
-          className="sm:max-w-md p-6 sm:p-7 space-y-4 bg-paper border border-ink/10 max-h-[90svh] overflow-y-auto"
+          showCloseButton={false}
+          className="max-h-[90svh] overscroll-contain overflow-y-auto border border-ink/10 bg-paper p-6 sm:max-w-md sm:p-7"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
-          <DialogHeader className="space-y-1">
-            <DialogTitle className="text-lg font-display font-bold flex items-center gap-2 text-ink">
-              <Receipt className="size-5 text-teal-950" />
-              Nouvelle Dépense
-            </DialogTitle>
-            <DialogDescription className="text-xs text-ink-soft">
-              Enregistrer une sortie d'argent de la trésorerie
-            </DialogDescription>
+          <DialogHeader className="flex-row items-start justify-between gap-3 space-y-0 text-left">
+            <div className="flex min-w-0 flex-col gap-1">
+              <DialogTitle className="flex items-center gap-2 text-lg font-display font-bold text-ink">
+                <Receipt className="size-5 text-teal-950" />
+                Nouvelle Dépense
+              </DialogTitle>
+              <DialogDescription className="text-xs text-ink-soft">
+                Enregistrer une sortie d'argent de la trésorerie
+              </DialogDescription>
+            </div>
+            <DialogClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Fermer"
+                title="Fermer"
+                disabled={isSubmitting}
+                className="-mr-3 -mt-3 max-md:size-11 md:-mr-2 md:-mt-2"
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </DialogClose>
           </DialogHeader>
 
           <form onSubmit={handleExpenseSubmit} className="space-y-4 pt-1">
@@ -1092,23 +1112,29 @@ export function ExpensesPage({
                   setFieldErrors((prev) => ({ ...prev, category: undefined }))
                 }}
               >
-                <SelectTrigger id="dialog-category" className="h-10 w-full bg-paper border-ink/15 text-sm text-ink">
-                  <SelectValue placeholder="Choisir une catégorie…" />
+                <SelectTrigger id="dialog-category" className="w-full bg-paper border-ink/15 text-sm text-ink max-md:!h-11">
+                  <SelectValue placeholder="Choisir une catégorie…">
+                    {categoryId === "new-category-placeholder"
+                      ? "+ Créer une nouvelle catégorie"
+                      : categories.find((category) => category.id === categoryId)?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent className="bg-paper border-ink/10">
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      <div className="flex flex-col text-left">
-                        <span className="font-medium text-ink">{c.name}</span>
-                        {c.description && (
-                          <span className="text-xs text-ink-soft">{c.description}</span>
-                        )}
-                      </div>
+                  <SelectGroup>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={c.id} textValue={c.name}>
+                        <div className="flex flex-col text-left">
+                          <span className="font-medium text-ink">{c.name}</span>
+                          {c.description && (
+                            <span className="text-xs text-ink-soft">{c.description}</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="new-category-placeholder" className="text-teal-950 font-display font-medium">
+                      + Créer une nouvelle catégorie
                     </SelectItem>
-                  ))}
-                  <SelectItem value="new-category-placeholder" className="text-teal-950 font-display font-medium">
-                    + Créer une nouvelle catégorie
-                  </SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               {fieldErrors.category && (
@@ -1134,7 +1160,7 @@ export function ExpensesPage({
                       setFieldErrors((prev) => ({ ...prev, category: undefined }))
                     }}
                     placeholder="ex. Mobilier de classe"
-                    className="bg-paper text-xs border-ink/15 text-ink"
+                    className="bg-paper text-xs border-ink/15 text-ink max-md:h-11"
                   />
                 </div>
                 <div className="space-y-1">
@@ -1146,14 +1172,14 @@ export function ExpensesPage({
                     value={newCategoryDesc}
                     onChange={(e) => setNewCategoryDesc(e.target.value)}
                     placeholder="ex. Achats de tables, bancs et chaises"
-                    className="bg-paper text-xs border-ink/15 text-ink"
+                    className="bg-paper text-xs border-ink/15 text-ink max-md:h-11"
                   />
                 </div>
               </div>
             )}
 
             {/* Grid for Amount & Date */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="dialog-amount" className="text-xs font-display font-medium text-ink">
                   Montant (XOF)
@@ -1169,7 +1195,7 @@ export function ExpensesPage({
                       setFieldErrors((prev) => ({ ...prev, amount: undefined }))
                     }}
                     placeholder="150 000"
-                    className="pr-12 text-sm font-semibold border-ink/15 bg-paper text-ink"
+                    className="pr-12 text-sm font-semibold border-ink/15 bg-paper text-ink max-md:h-11"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-soft pointer-events-none">
                     XOF
@@ -1190,7 +1216,7 @@ export function ExpensesPage({
                       id="dialog-spentAt"
                       variant="outline"
                       className={cn(
-                        "w-full h-10 justify-start text-left text-xs font-normal bg-paper border-ink/15 text-ink",
+                        "h-10 w-full justify-start text-left text-xs font-normal bg-paper border-ink/15 text-ink max-md:h-11",
                         !spentAtDate && "text-ink-soft"
                       )}
                     >
@@ -1219,16 +1245,16 @@ export function ExpensesPage({
             </div>
 
             {/* Description / Motif */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="dialog-payee" className="text-xs font-display font-medium text-ink">Payé à</Label>
-                <Input id="dialog-payee" maxLength={255} value={payee} onChange={(e) => { setPayee(e.target.value); setFieldErrors((prev) => ({ ...prev, payee: undefined })) }} placeholder="ex. M. Kouamé / Quincaillerie Awa" className="text-xs border-ink/15 bg-paper text-ink" />
+                <Input id="dialog-payee" maxLength={255} value={payee} onChange={(e) => { setPayee(e.target.value); setFieldErrors((prev) => ({ ...prev, payee: undefined })) }} placeholder="ex. M. Kouamé / Quincaillerie Awa" className="text-xs border-ink/15 bg-paper text-ink max-md:h-11" />
                 {fieldErrors.payee && <p className="text-xs text-negative font-medium">{fieldErrors.payee}</p>}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dialog-payment-method" className="text-xs font-display font-medium text-ink">Moyen de paiement</Label>
                 <Select value={paymentMethod} onValueChange={(value) => { setPaymentMethod(value as typeof paymentMethod); setFieldErrors((prev) => ({ ...prev, paymentMethod: undefined })) }}>
-                  <SelectTrigger id="dialog-payment-method" className="h-10 w-full bg-paper border-ink/15 text-sm text-ink"><SelectValue placeholder="Choisir un moyen…" /></SelectTrigger>
+                  <SelectTrigger id="dialog-payment-method" className="w-full bg-paper border-ink/15 text-sm text-ink max-md:!h-11"><SelectValue placeholder="Choisir un moyen…" /></SelectTrigger>
                   <SelectContent className="bg-paper border-ink/10"><SelectItem value="cash">Espèces</SelectItem><SelectItem value="mobile_money">Mobile money</SelectItem><SelectItem value="bank_transfer">Virement bancaire</SelectItem><SelectItem value="other">Autre</SelectItem></SelectContent>
                 </Select>
                 {fieldErrors.paymentMethod && <p className="text-xs text-negative font-medium">{fieldErrors.paymentMethod}</p>}
@@ -1263,6 +1289,7 @@ export function ExpensesPage({
                 Pièce justificative (optionnel)
               </Label>
               <Input
+                ref={receiptInputRef}
                 id="dialog-receipt"
                 type="file"
                 accept="image/jpeg,image/png,image/webp,application/pdf"
@@ -1280,12 +1307,27 @@ export function ExpensesPage({
                   setFieldErrors((prev) => ({ ...prev, general: undefined }))
                   setReceiptFile(file)
                 }}
-                className="text-xs border-ink/15 bg-paper text-ink"
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
               />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => receiptInputRef.current?.click()}
+                disabled={isSubmitting}
+                className="w-full justify-start overflow-hidden max-md:h-11"
+                aria-label={receiptFile ? `Modifier la pièce justificative : ${receiptFile.name}` : "Ajouter un justificatif"}
+                title={receiptFile?.name}
+              >
+                <Paperclip data-icon="inline-start" aria-hidden="true" />
+                <span className="truncate">
+                  {receiptFile?.name ?? "Ajouter un justificatif"}
+                </span>
+              </Button>
               <p className="text-2xs text-ink-soft">
-                Photo ou PDF. Les photos sont compressées automatiquement ; PDF 10 Mo maximum.
+                JPG, PNG, WebP ou PDF. PDF : 10 Mo maximum.
               </p>
-              {receiptFile && <p className="text-xs font-medium text-ink">{receiptFile.name}</p>}
             </div>
 
             {fieldErrors.general && (
@@ -1294,17 +1336,18 @@ export function ExpensesPage({
               </p>
             )}
 
-            <DialogFooter className="pt-3 border-t border-ink/10 gap-2 sm:gap-0">
+            <DialogFooter className="sticky -bottom-6 -mx-6 gap-2 border-t border-ink/10 bg-paper px-6 pb-6 pt-3 md:static md:mx-0 md:bg-transparent md:px-0 md:pb-0 sm:gap-0">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setCreateDialogOpen(false)}
                 disabled={isSubmitting}
+                className="max-md:h-11"
               >
                 Annuler
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Enregistrement..." : "Enregistrer la dépense"}
+              <Button type="submit" disabled={isSubmitting} className="max-md:h-11">
+                {isSubmitting ? "Enregistrement…" : "Enregistrer la dépense"}
               </Button>
             </DialogFooter>
           </form>
