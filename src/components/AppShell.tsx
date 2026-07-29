@@ -54,23 +54,30 @@ function Header() {
     <header className="flex h-12 shrink-0 items-center bg-transparent px-3 sm:px-6 transition-all">
       <div className="flex w-full items-center justify-between min-w-0">
         <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1">
-          <SidebarTrigger className="-ml-1 shrink-0 text-ink-soft hover:text-ink" />
+          <SidebarTrigger
+            aria-label="Afficher ou masquer le menu principal"
+            title="Menu principal"
+            className="-ml-1 shrink-0 text-ink-soft hover:text-ink max-md:size-11 max-md:rounded-lg max-md:border max-md:border-teal-950/20 max-md:bg-teal-100 max-md:text-teal-950 max-md:shadow-xs max-md:hover:bg-teal-100/80 max-md:hover:text-teal-950 max-md:[&_svg]:!size-5"
+          />
           <Separator
             orientation="vertical"
             className="mx-1 sm:mx-2 data-[orientation=vertical]:h-4 bg-ink/10"
           />
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild className="cursor-pointer text-xs">
+          <Breadcrumb className="min-w-0 overflow-hidden">
+            <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden">
+              <BreadcrumbItem className="min-w-0">
+                <BreadcrumbLink
+                  asChild
+                  className="max-w-24 cursor-pointer truncate text-xs sm:max-w-40 md:max-w-none"
+                >
                   <Link to="/">{collegeName}</Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
 
               {sectionLabel && (
                 <>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
+                  <BreadcrumbSeparator className="shrink-0" />
+                  <BreadcrumbItem className="min-w-0">
                     {detailTitle ? (
                       // Only a link when there is something deeper to come back
                       // from. This is what `backTrigger` used to do by hand.
@@ -91,9 +98,11 @@ function Header() {
 
               {detailTitle && (
                 <>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    <BreadcrumbPage className="text-xs font-semibold">{detailTitle}</BreadcrumbPage>
+                  <BreadcrumbSeparator className="shrink-0" />
+                  <BreadcrumbItem className="min-w-0">
+                    <BreadcrumbPage className="max-w-24 truncate text-xs font-semibold sm:max-w-36 md:max-w-none">
+                      {detailTitle}
+                    </BreadcrumbPage>
                   </BreadcrumbItem>
                 </>
               )}
