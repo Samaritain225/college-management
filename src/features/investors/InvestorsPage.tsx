@@ -514,9 +514,9 @@ export function InvestorsPage({
         {canManage && (
           <Button
             onClick={() => setShowForm((s) => !s)}
-            className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
+            className="h-10 px-4 text-xs font-semibold shadow-2xs max-md:h-11"
           >
-            <UserPlus className="size-4 shrink-0" />
+            <UserPlus data-icon="inline-start" aria-hidden="true" />
             {showForm ? "Annuler" : "Nouvel investisseur"}
           </Button>
         )}
@@ -552,7 +552,7 @@ export function InvestorsPage({
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="ci-contribution" className="text-xs font-display font-medium text-ink">Contribution convenue (XOF) *</Label>
+                <Label htmlFor="ci-contribution" className="text-xs font-display font-medium text-ink">Contribution convenue (F CFA) *</Label>
                 <Input
                   id="ci-contribution"
                   value={createContribution}

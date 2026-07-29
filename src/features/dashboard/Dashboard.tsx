@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { PeriodFilter } from "@/components/PeriodFilter"
 import { StatCard } from "@/components/StatCard"
 import { BudgetDonut, type CategorySpend } from "./BudgetDonut"
@@ -213,13 +214,13 @@ export function Dashboard({ dbReady = true }: { dbReady?: boolean }) {
         <p className="text-sm text-ink-soft max-w-sm">
           Vérifiez votre connexion et réessayez. Les chiffres affichés ne reflètent pas forcément l'état réel du compte.
         </p>
-        <button
+        <Button
           type="button"
           onClick={() => setRetryTick((t) => t + 1)}
-          className="mt-2 rounded-full bg-teal-950 text-white text-sm font-display font-semibold px-4 py-2 hover:bg-teal-900 transition-colors"
+          className="mt-2 font-semibold text-white transition-colors max-md:h-11"
         >
           Réessayer
-        </button>
+        </Button>
       </div>
     )
   }

@@ -469,7 +469,7 @@ export function ExpensesPage({
 
     const numericAmt = Number(amount.replace(/\D/g, ""))
     if (!numericAmt || numericAmt <= 0) {
-      errors.amount = "Veuillez saisir un montant valide supérieur à 0 XOF."
+      errors.amount = "Veuillez saisir un montant valide supérieur à 0 F CFA."
     }
 
     if (!description.trim()) {
@@ -747,7 +747,7 @@ export function ExpensesPage({
             {activeTab === "expenses" ? (
               <Button
                 onClick={handleOpenCreateExpenseDialog}
-                className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs shrink-0"
+                className="h-10 shrink-0 px-4 text-xs font-semibold shadow-2xs max-md:h-11"
               >
                 <Plus data-icon="inline-start" aria-hidden="true" />
                 Enregistrer une dépense
@@ -755,7 +755,7 @@ export function ExpensesPage({
             ) : (
               <Button
                 onClick={handleOpenCreateCategoryDialog}
-                className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
+                className="h-10 px-4 text-xs font-semibold shadow-2xs max-md:h-11"
               >
                 <FolderPlus data-icon="inline-start" aria-hidden="true" />
                 Nouvelle catégorie
@@ -1356,7 +1356,7 @@ export function ExpensesPage({
             <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="dialog-amount" className="text-xs font-display font-medium text-ink">
-                  Montant (XOF)
+                  Montant (F CFA)
                 </Label>
                 <div className="relative">
                   <Input
@@ -1372,7 +1372,7 @@ export function ExpensesPage({
                     className="pr-12 text-sm font-semibold border-ink/15 bg-paper text-ink max-md:h-11"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-soft pointer-events-none">
-                    XOF
+                    F CFA
                   </span>
                 </div>
                 {fieldErrors.amount && (
