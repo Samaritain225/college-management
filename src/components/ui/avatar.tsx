@@ -32,7 +32,11 @@ function AvatarImage({
   return (
     <AvatarPrimitive.Image
       data-slot="avatar-image"
-      className={cn("aspect-square size-full", className)}
+      // object-cover: a plain <img> defaults to object-fit: fill, so any
+      // source photo that isn't already a perfect square gets squashed to
+      // match the round frame instead of cropped to it — the "profile
+      // picture looks stretched" bug.
+      className={cn("aspect-square size-full object-cover", className)}
       {...props}
     />
   )
