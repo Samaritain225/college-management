@@ -1,4 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { useForm, Controller } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { focusFirstInvalidField } from "@/lib/formFocus"
+import { investorFormSchema, NO_LINKED_ACCOUNT, type InvestorFormValues } from "./investorFormSchemas"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { StatCard } from "@/components/StatCard"
 import { useNavigate, useParams } from "react-router-dom"
@@ -85,20 +89,24 @@ export function InvestorsPage({
   useSetPageTitle(selectedInvestor ? `Fiche — ${selectedInvestor.name}` : null)
   const [investorContribs, setInvestorContribs] = useState<Contribution[]>([])
 
-  // Create form state
-  const [createName, setCreateName] = useState("")
-  const [createPhone, setCreatePhone] = useState("")
-  const [createContribution, setCreateContribution] = useState("")
-  const [createUserId, setCreateUserId] = useState<string>("none")
-  const [createSubmitting, setCreateSubmitting] = useState(false)
+  // Create form state — react-hook-form + zod (investorFormSchemas.ts),
+  // same pattern as UsersPage/ExpensesPage.
+  const createForm = useForm<InvestorFormValues>({
+    resolver: zodResolver(investorFormSchema),
+    mode: "onTouched",
+    defaultValues: { name: "", phone: "", contribution: "", userId: NO_LINKED_ACCOUNT },
+  })
 
-  // Edit form state
+  // Edit form state — the inline table-row editor. No `userId` field is
+  // rendered here (the row has no room for a Select and the app has never
+  // exposed re-linking an account after creation), so `editForm`'s userId
+  // value just rides along unchanged from whatever `startEdit` loaded.
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editName, setEditName] = useState("")
-  const [editPhone, setEditPhone] = useState("")
-  const [editContribution, setEditContribution] = useState("")
-  const [editUserId, setEditUserId] = useState<string>("none")
-  const [editSubmitting, setEditSubmitting] = useState(false)
+  const editForm = useForm<InvestorFormValues>({
+    resolver: zodResolver(investorFormSchema),
+    mode: "onTouched",
+    defaultValues: { name: "", phone: "", contribution: "", userId: NO_LINKED_ACCOUNT },
+  })
 
   async function refresh() {
     if (!dbReady) return
@@ -151,42 +159,32 @@ export function InvestorsPage({
   // Create Investor
   // ---------------------------------------------------------------------------
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
+  const CREATE_FIELD_ORDER: (keyof InvestorFormValues)[] = ["name", "phone", "contribution", "userId"]
 
-    if (!createName.trim()) return toast.error("Le nom complet est requis.")
-    if (!createContribution.trim()) return toast.error("La contribution convenue est requise.")
+  const submitCreate = createForm.handleSubmit(
+    async (values) => {
+      const amount = Number(values.contribution.replace(/\D/g, ""))
+      try {
+        await addInvestor({
+          name: values.name.trim(),
+          phone: values.phone?.trim() || null,
+          agreedContribution: amount,
+          userId: values.userId === NO_LINKED_ACCOUNT ? null : values.userId,
+        })
 
-    const amount = Number(createContribution.replace(/\D/g, ""))
-    if (isNaN(amount) || amount <= 0) {
-      return toast.error("La contribution doit être un montant positif.")
-    }
+        toast.success("Investisseur enregistré avec succès.")
+        createForm.reset()
+        setShowForm(false)
 
-    setCreateSubmitting(true)
-    try {
-      await addInvestor({
-        name: createName.trim(),
-        phone: createPhone.trim() || null,
-        agreedContribution: amount,
-        userId: createUserId === "none" ? null : createUserId,
-      })
-
-      toast.success("Investisseur enregistré avec succès.")
-      setCreateName("")
-      setCreatePhone("")
-      setCreateContribution("")
-      setCreateUserId("none")
-      setShowForm(false)
-
-      await refresh()
-      if (onChange) onChange()
-    } catch (err) {
-      toast.error("Erreur lors de la création de l'investisseur.")
-      console.error(err)
-    } finally {
-      setCreateSubmitting(false)
-    }
-  }
+        await refresh()
+        if (onChange) onChange()
+      } catch (err) {
+        toast.error("Erreur lors de la création de l'investisseur.")
+        console.error(err)
+      }
+    },
+    (errors) => focusFirstInvalidField(errors, CREATE_FIELD_ORDER, createForm.setFocus)
+  )
 
   // ---------------------------------------------------------------------------
   // Edit Investor
@@ -194,45 +192,51 @@ export function InvestorsPage({
 
   function startEdit(s: InvestorStanding) {
     setEditingId(s.id)
-    setEditName(s.name)
-    setEditPhone(s.phone || "")
-    setEditContribution(String(s.agreed_contribution))
-    setEditUserId(s.user_id || "none")
+    editForm.reset({
+      name: s.name,
+      phone: s.phone || "",
+      contribution: String(s.agreed_contribution),
+      userId: s.user_id || NO_LINKED_ACCOUNT,
+    })
   }
 
   function cancelEdit() {
     setEditingId(null)
   }
 
-  async function handleEdit(id: string) {
-    if (!editName.trim()) return toast.error("Le nom complet est requis.")
-    if (!editContribution.trim()) return toast.error("La contribution est requise.")
+  const EDIT_FIELD_ORDER: (keyof InvestorFormValues)[] = ["name", "phone", "contribution"]
 
-    const amount = Number(editContribution.replace(/\D/g, ""))
-    if (isNaN(amount) || amount <= 0) {
-      return toast.error("La contribution doit être un montant positif.")
+  // The inline row has no error-paragraph slots (unlike the create form's
+  // card, there's no room in a table cell), so an invalid submit here still
+  // surfaces through a toast — same as before the migration — on top of the
+  // focus-the-first-invalid-field behavior every other form now has.
+  const submitEdit = editForm.handleSubmit(
+    async (values) => {
+      if (!editingId) return
+      const amount = Number(values.contribution.replace(/\D/g, ""))
+      try {
+        await updateInvestor(editingId, {
+          name: values.name.trim(),
+          phone: values.phone?.trim() || null,
+          agreedContribution: amount,
+          userId: values.userId === NO_LINKED_ACCOUNT ? null : values.userId,
+        })
+
+        toast.success("Investisseur mis à jour avec succès.")
+        setEditingId(null)
+        await refresh()
+        if (onChange) onChange()
+      } catch (err) {
+        toast.error("Erreur lors de la mise à jour.")
+        console.error(err)
+      }
+    },
+    (errors) => {
+      focusFirstInvalidField(errors, EDIT_FIELD_ORDER, editForm.setFocus)
+      const firstMessage = EDIT_FIELD_ORDER.map((key) => errors[key]?.message).find(Boolean)
+      if (firstMessage) toast.error(firstMessage)
     }
-
-    setEditSubmitting(true)
-    try {
-      await updateInvestor(id, {
-        name: editName.trim(),
-        phone: editPhone.trim() || null,
-        agreedContribution: amount,
-        userId: editUserId === "none" ? null : editUserId,
-      })
-
-      toast.success("Investisseur mis à jour avec succès.")
-      setEditingId(null)
-      await refresh()
-      if (onChange) onChange()
-    } catch (err) {
-      toast.error("Erreur lors de la mise à jour.")
-      console.error(err)
-    } finally {
-      setEditSubmitting(false)
-    }
-  }
+  )
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -529,24 +533,26 @@ export function InvestorsPage({
             <CardTitle className="text-ink font-display font-semibold text-base">Enregistrer un investisseur</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2">
+            <form onSubmit={submitCreate} className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="ci-name" className="text-xs font-display font-medium text-ink">Nom complet *</Label>
                 <Input
                   id="ci-name"
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
+                  {...createForm.register("name")}
                   placeholder="Ex. Konan Blaise"
+                  aria-invalid={!!createForm.formState.errors.name}
                   className="border-ink/15 bg-paper text-ink text-sm"
                   required
                 />
+                {createForm.formState.errors.name && (
+                  <p className="text-xs text-negative font-medium">{createForm.formState.errors.name.message}</p>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="ci-phone" className="text-xs font-display font-medium text-ink">Téléphone (facultatif)</Label>
                 <Input
                   id="ci-phone"
-                  value={createPhone}
-                  onChange={(e) => setCreatePhone(e.target.value)}
+                  {...createForm.register("phone")}
                   placeholder="+225 05 00 00 00 00"
                   className="border-ink/15 bg-paper text-ink text-sm"
                 />
@@ -555,32 +561,41 @@ export function InvestorsPage({
                 <Label htmlFor="ci-contribution" className="text-xs font-display font-medium text-ink">Contribution convenue (F CFA) *</Label>
                 <Input
                   id="ci-contribution"
-                  value={createContribution}
-                  onChange={(e) => setCreateContribution(e.target.value)}
+                  {...createForm.register("contribution")}
                   placeholder="2 500 000"
+                  aria-invalid={!!createForm.formState.errors.contribution}
                   className="border-ink/15 bg-paper text-ink text-sm"
                   required
                 />
+                {createForm.formState.errors.contribution && (
+                  <p className="text-xs text-negative font-medium">{createForm.formState.errors.contribution.message}</p>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="ci-user" className="text-xs font-display font-medium text-ink">Lier à un compte utilisateur (facultatif)</Label>
-                <Select value={createUserId} onValueChange={setCreateUserId}>
-                  <SelectTrigger id="ci-user" className="h-10 w-full border-ink/15 bg-paper text-ink text-sm">
-                    <SelectValue placeholder="Choisir un compte" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-paper border-ink/10">
-                    <SelectItem value="none">Aucun compte (Pas d'accès de connexion)</SelectItem>
-                    {users.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.name} ({u.email})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Controller
+                  control={createForm.control}
+                  name="userId"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="ci-user" ref={field.ref} className="h-10 w-full border-ink/15 bg-paper text-ink text-sm">
+                        <SelectValue placeholder="Choisir un compte" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-paper border-ink/10">
+                        <SelectItem value={NO_LINKED_ACCOUNT}>Aucun compte (Pas d'accès de connexion)</SelectItem>
+                        {users.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>
+                            {u.name} ({u.email})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </div>
               <div className="flex flex-col gap-1.5 sm:col-span-2 mt-2">
-                <Button type="submit" disabled={createSubmitting} className="w-full font-display">
-                  {createSubmitting ? "Enregistrement…" : "Enregistrer la fiche financière"}
+                <Button type="submit" disabled={createForm.formState.isSubmitting} className="w-full font-display">
+                  {createForm.formState.isSubmitting ? "Enregistrement…" : "Enregistrer la fiche financière"}
                 </Button>
               </div>
             </form>
@@ -676,8 +691,8 @@ export function InvestorsPage({
                     <TableCell className="text-xs font-display font-semibold text-ink">
                       {isEditing ? (
                         <Input
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
+                          {...editForm.register("name")}
+                          aria-invalid={!!editForm.formState.errors.name}
                           className="h-8 text-xs w-44 border-ink/15 bg-paper text-ink"
                         />
                       ) : (
@@ -694,8 +709,7 @@ export function InvestorsPage({
                     <TableCell className="hidden sm:table-cell text-xs text-ink-soft">
                       {isEditing ? (
                         <Input
-                          value={editPhone}
-                          onChange={(e) => setEditPhone(e.target.value)}
+                          {...editForm.register("phone")}
                           className="h-8 text-xs w-36 border-ink/15 bg-paper text-ink"
                         />
                       ) : (
@@ -707,8 +721,8 @@ export function InvestorsPage({
                     <TableCell className="text-right text-xs">
                       {isEditing ? (
                         <Input
-                          value={editContribution}
-                          onChange={(e) => setEditContribution(e.target.value)}
+                          {...editForm.register("contribution")}
+                          aria-invalid={!!editForm.formState.errors.contribution}
                           className="h-8 text-xs text-right w-28 ml-auto border-ink/15 bg-paper text-ink"
                         />
                       ) : (
@@ -744,8 +758,8 @@ export function InvestorsPage({
                               size="icon"
                               variant="ghost"
                               className="h-8 w-8 text-positive hover:text-positive/80 hover:bg-teal-100/50"
-                              onClick={() => handleEdit(s.id)}
-                              disabled={editSubmitting}
+                              onClick={() => submitEdit()}
+                              disabled={editForm.formState.isSubmitting}
                               title="Enregistrer"
                             >
                               <Check className="size-4" />

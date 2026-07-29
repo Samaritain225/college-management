@@ -6,7 +6,7 @@ import { lazy, type ReactNode } from "react"
 import { Navigate, Outlet, createBrowserRouter } from "react-router-dom"
 import { AppShell } from "@/components/AppShell"
 import { NotFoundView } from "@/components/NotFoundView"
-import { RequireAuth, RequireRole, useAuth } from "@/lib/auth"
+import { RequireAuth, RequireRole } from "@/lib/auth"
 
 // Route-level code splitting — each feature page ships its own chunk, loaded
 // only when its route is first visited.
@@ -49,12 +49,6 @@ function RoleRoute({ roles, children }: { roles: string[]; children: ReactNode }
       {children}
     </RequireRole>
   )
-}
-
-/** The signed-in user's own record, rendered by the same page as /users/:id. */
-function OwnProfile() {
-  const { user } = useAuth()
-  return <UsersPage profileModeForceUserId={user!.id} />
 }
 
 export const router = createBrowserRouter([
@@ -133,7 +127,9 @@ export const router = createBrowserRouter([
         ],
       },
 
-      { path: "profile", element: <OwnProfile />, handle: { label: "Mon compte" } },
+      // Old entry point, kept as a redirect so bookmarks/links don't 404 —
+      // "Mon compte" now lives in Settings (ProfileSection), not UsersPage.
+      { path: "profile", element: <Navigate to="/settings?tab=profile" replace /> },
       { path: "settings", element: <SettingsPage />, handle: { label: "Paramètres" } },
 
       { path: "*", element: <NotFoundView /> },

@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -6,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useSettings } from "@/lib/settings"
 import { useAuth } from "@/lib/auth"
+import { focusFirstInvalidField } from "@/lib/formFocus"
+import { loginFormSchema, type LoginFormValues } from "./loginFormSchema"
 import { Lock, Pencil, Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
 
@@ -26,9 +30,17 @@ export function LoginPage() {
   const { collegeName, collegeLogo } = useSettings()
   const { login } = useAuth()
 
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
+  const loginForm = useForm<LoginFormValues>({
+    resolver: zodResolver(loginFormSchema),
+    mode: "onTouched",
+    defaultValues: { email: "", password: "" },
+  })
   const [showPassword, setShowPassword] = useState(false)
+  // Deliberately not `loginForm.formState.isSubmitting`: when captcha is
+  // enabled, the actual login happens later, inside Turnstile's `onSuccess`
+  // callback — outside the promise `handleSubmit` awaits — so RHF's own
+  // submitting flag would flip back to false the instant `captchaRef.current
+  // .execute()` returns, long before the login round trip actually finishes.
   const [submitting, setSubmitting] = useState(false)
   const [quoteIndex, setQuoteIndex] = useState(0)
   const [fadeState, setFadeState] = useState<"in" | "out">("in")
@@ -55,6 +67,9 @@ export function LoginPage() {
   }, [])
 
   const executeLogin = async (token?: string) => {
+    // Read live rather than captured — Turnstile's `onSuccess` calls this
+    // well after the initial submit, so a closed-over value could be stale.
+    const { email, password } = loginForm.getValues()
     try {
       const user = await login(email, password, token)
       toast.success(`Bon retour, ${user.name} !`)
@@ -79,17 +94,19 @@ export function LoginPage() {
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (submitting) return
-    setSubmitting(true)
+  const handleSubmit = loginForm.handleSubmit(
+    () => {
+      if (submitting) return
+      setSubmitting(true)
 
-    if (captchaRef.current) {
-      captchaRef.current.execute()
-    } else {
-      executeLogin()
-    }
-  }
+      if (captchaRef.current) {
+        captchaRef.current.execute()
+      } else {
+        executeLogin()
+      }
+    },
+    (errors) => focusFirstInvalidField(errors, ["email", "password"], loginForm.setFocus)
+  )
 
   return (
     <div className="relative flex min-h-screen w-screen bg-paper font-sans">
@@ -204,19 +221,25 @@ export function LoginPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              {/* noValidate — native `required` blocks React's `onSubmit`
+                  before it ever fires, which would make the zod error
+                  messages below unreachable. See AGENTS.md. */}
+              <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                 <div className="space-y-1.5">
                   <Label htmlFor="login-email" className="text-xs font-display font-medium text-ink">Email professionnel</Label>
                   <Input
                      id="login-email"
                      type="email"
-                     value={email}
-                     onChange={(e) => setEmail(e.target.value)}
+                     {...loginForm.register("email")}
                      placeholder="nom@college.ci"
+                     aria-invalid={!!loginForm.formState.errors.email}
                      className="border-ink/15 bg-paper text-ink text-sm"
                      required
                      disabled={submitting}
                   />
+                  {loginForm.formState.errors.email && (
+                    <p className="text-xs text-negative font-medium">{loginForm.formState.errors.email.message}</p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -225,9 +248,9 @@ export function LoginPage() {
                     <Input
                       id="login-password"
                       type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      {...loginForm.register("password")}
                       placeholder="••••••••"
+                      aria-invalid={!!loginForm.formState.errors.password}
                       className="pr-10 border-ink/15 bg-paper text-ink text-sm"
                       required
                       disabled={submitting}
@@ -244,6 +267,9 @@ export function LoginPage() {
                       )}
                     </button>
                   </div>
+                  {loginForm.formState.errors.password && (
+                    <p className="text-xs text-negative font-medium">{loginForm.formState.errors.password.message}</p>
+                  )}
                 </div>
 
                 {/* Invisible Cloudflare Turnstile verification — only mounted

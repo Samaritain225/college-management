@@ -96,6 +96,17 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
+import { useForm, Controller } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { focusFirstInvalidField } from "@/lib/formFocus"
+import {
+  expenseFormSchema,
+  categoryFormSchema,
+  NEW_CATEGORY_SENTINEL,
+  type ExpenseFormValues,
+  type ExpenseFormOutput,
+  type CategoryFormValues,
+} from "./expenseFormSchemas"
 
 function formatAmountInput(val: string): string {
   const digits = val.replace(/\D/g, "")
@@ -174,36 +185,42 @@ export function ExpensesPage({
     setActiveTab(mode)
   }, [mode])
 
-  // Creation expense dialog state
+  // Creation expense dialog state — react-hook-form + zod
+  // (expenseFormSchemas.ts), same pattern as UsersPage. The receipt file
+  // stays outside the schema: `validateUpload` already gives immediate
+  // feedback the moment a bad file is picked, before submission even starts,
+  // so it doesn't fit the "validate on submit" shape the rest of the form
+  // uses — it's shown through the same general-error slot instead.
+  const EXPENSE_DEFAULT_VALUES: ExpenseFormValues = {
+    categoryId: "",
+    newCategoryName: "",
+    newCategoryDesc: "",
+    amount: "",
+    spentAt: startOfToday(),
+    payee: "",
+    paymentMethod: "",
+    description: "",
+  }
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [expenseSuccessDialogOpen, setExpenseSuccessDialogOpen] = useState(false)
-  const [categoryId, setCategoryId] = useState("")
-  const [newCategoryName, setNewCategoryName] = useState("")
-  const [newCategoryDesc, setNewCategoryDesc] = useState("")
-  const [amount, setAmount] = useState("")
-  const [description, setDescription] = useState("")
-  const [payee, setPayee] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState<"" | "cash" | "mobile_money" | "bank_transfer" | "other">("")
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const receiptInputRef = useRef<HTMLInputElement>(null)
-  const [spentAtDate, setSpentAtDate] = useState<Date | undefined>(startOfToday())
-  const [fieldErrors, setFieldErrors] = useState<{
-    category?: string
-    amount?: string
-    spentAt?: string
-    description?: string
-    payee?: string
-    paymentMethod?: string
-    general?: string
-  }>({})
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [expenseGeneralError, setExpenseGeneralError] = useState<string | null>(null)
+  const expenseForm = useForm<ExpenseFormValues, any, ExpenseFormOutput>({
+    resolver: zodResolver(expenseFormSchema),
+    mode: "onTouched",
+    defaultValues: EXPENSE_DEFAULT_VALUES,
+  })
+  const expenseCategoryIdValue = expenseForm.watch("categoryId")
 
   // Creation category dialog state
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
-  const [catName, setCatName] = useState("")
-  const [catDescription, setCatDescription] = useState("")
-  const [catError, setCatError] = useState<string | null>(null)
-  const [catSubmitting, setCatSubmitting] = useState(false)
+  const [catGeneralError, setCatGeneralError] = useState<string | null>(null)
+  const categoryForm = useForm<CategoryFormValues>({
+    resolver: zodResolver(categoryFormSchema),
+    mode: "onTouched",
+    defaultValues: { name: "", description: "" },
+  })
 
   // Category details sheet state
   const [selectedCategoryDetails, setSelectedCategoryDetails] = useState<BudgetCategory | null>(null)
@@ -423,16 +440,9 @@ export function ExpensesPage({
   }, [selectedCategoryDetails, kpiPeriod, dbReady])
 
   function resetExpenseForm() {
-    setCategoryId("")
-    setNewCategoryName("")
-    setNewCategoryDesc("")
-    setAmount("")
-    setDescription("")
-    setPayee("")
-    setPaymentMethod("")
+    expenseForm.reset(EXPENSE_DEFAULT_VALUES)
     setReceiptFile(null)
-    setSpentAtDate(startOfToday())
-    setFieldErrors({})
+    setExpenseGeneralError(null)
   }
 
   function handleOpenCreateExpenseDialog() {
@@ -441,118 +451,76 @@ export function ExpensesPage({
   }
 
   function handleOpenCreateCategoryDialog() {
-    setCatName("")
-    setCatDescription("")
-    setCatError(null)
+    categoryForm.reset({ name: "", description: "" })
+    setCatGeneralError(null)
     setCategoryDialogOpen(true)
   }
 
-  async function handleExpenseSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setFieldErrors({})
+  const EXPENSE_FIELD_ORDER: (keyof ExpenseFormValues)[] = [
+    "categoryId",
+    "amount",
+    "spentAt",
+    "payee",
+    "paymentMethod",
+    "description",
+  ]
 
-    if (!user) return
+  const submitExpense = expenseForm.handleSubmit(
+    async (values) => {
+      if (!user) return
+      setExpenseGeneralError(null)
 
-    const errors: typeof fieldErrors = {}
+      const isCreatingNewCategory = values.categoryId === NEW_CATEGORY_SENTINEL
+      let activeCategoryId = values.categoryId
 
-    const isCreatingNewCategory = categoryId === "new-category-placeholder"
-    let activeCategoryId = isCreatingNewCategory ? "" : categoryId
-    if (isCreatingNewCategory) {
-      if (!newCategoryName.trim()) {
-        errors.category = "Veuillez saisir le nom de la nouvelle catégorie."
+      try {
+        if (isCreatingNewCategory) {
+          const category = await addCategory(
+            values.newCategoryName!.trim(),
+            values.newCategoryDesc?.trim() || undefined,
+          )
+          activeCategoryId = category.id
+        }
+
+        const numericAmt = Number(values.amount.replace(/\D/g, ""))
+        const uploadedReceiptKey = receiptFile ? await uploadFile(receiptFile, "receipt") : undefined
+        await addExpense({
+          categoryId: activeCategoryId,
+          amount: numericAmt,
+          description: values.description.trim(),
+          spentAt: values.spentAt.toISOString(),
+          receiptKey: uploadedReceiptKey,
+          payee: values.payee.trim(),
+          paymentMethod: values.paymentMethod,
+        })
+
+        resetExpenseForm()
+        setCreateDialogOpen(false)
+        await refresh()
+        onChange?.()
+        setExpenseSuccessDialogOpen(true)
+      } catch (err) {
+        console.error(err)
+        setExpenseGeneralError("Impossible d'enregistrer la dépense. Réessayez.")
       }
-    }
+    },
+    (errors) => focusFirstInvalidField(errors, EXPENSE_FIELD_ORDER, expenseForm.setFocus)
+  )
 
-    if (!isCreatingNewCategory && !activeCategoryId && !errors.category) {
-      errors.category = "Veuillez choisir ou créer une catégorie."
-    }
-
-    const numericAmt = Number(amount.replace(/\D/g, ""))
-    if (!numericAmt || numericAmt <= 0) {
-      errors.amount = "Veuillez saisir un montant valide supérieur à 0 F CFA."
-    }
-
-    if (!description.trim()) {
-      errors.description = "Veuillez décrire le motif de cette dépense."
-    } else if (description.trim().length > 255) {
-      errors.description = "Le motif ne doit pas dépasser 255 caractères."
-    }
-
-    if (!payee.trim()) {
-      errors.payee = "Veuillez indiquer qui a reçu le paiement."
-    }
-    if (!paymentMethod) {
-      errors.paymentMethod = "Veuillez choisir le moyen de paiement."
-    }
-
-    if (!spentAtDate || Number.isNaN(spentAtDate.getTime())) {
-      errors.spentAt = "Veuillez saisir une date valide."
-    }
-
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors)
-      return
-    }
-
-    setIsSubmitting(true)
+  const submitCategory = categoryForm.handleSubmit(async (values) => {
+    setCatGeneralError(null)
     try {
-      if (isCreatingNewCategory) {
-        const category = await addCategory(
-          newCategoryName.trim(),
-          newCategoryDesc.trim() || undefined,
-        )
-        activeCategoryId = category.id
-      }
-
-      const dateObj = spentAtDate || new Date()
-      const uploadedReceiptKey = receiptFile ? await uploadFile(receiptFile, "receipt") : undefined
-      await addExpense({
-        categoryId: activeCategoryId,
-        amount: numericAmt,
-        description: description.trim(),
-        spentAt: dateObj.toISOString(),
-        receiptKey: uploadedReceiptKey,
-        payee: payee.trim(),
-        paymentMethod: paymentMethod as "cash" | "mobile_money" | "bank_transfer" | "other",
-      })
-
-      resetExpenseForm()
-      setCreateDialogOpen(false)
+      const newCat = await addCategory(values.name.trim(), values.description?.trim() || undefined)
       await refresh()
-      onChange?.()
-      setExpenseSuccessDialogOpen(true)
-    } catch (err) {
-      console.error(err)
-      setFieldErrors({ general: "Impossible d'enregistrer la dépense. Réessayez." })
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  async function handleCategorySubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setCatError(null)
-    if (!catName.trim()) {
-      setCatError("Le nom de la catégorie est obligatoire.")
-      return
-    }
-
-    setCatSubmitting(true)
-    try {
-      const newCat = await addCategory(catName.trim(), catDescription.trim() || undefined)
-      await refresh()
-      setCatName("")
-      setCatDescription("")
+      categoryForm.reset({ name: "", description: "" })
       setCategoryDialogOpen(false)
-      setCategoryId(newCat.id)
+      expenseForm.setValue("categoryId", newCat.id)
       onChange?.()
     } catch (err) {
       console.error(err)
-      setCatError("Erreur lors de la création de la catégorie.")
-    } finally {
-      setCatSubmitting(false)
+      setCatGeneralError("Erreur lors de la création de la catégorie.")
     }
-  }
+  })
 
   // Category aggregations, computed server-side over the whole period rather
   // than over whatever page is loaded. Kept as a Map so the callers below read
@@ -1265,7 +1233,7 @@ export function ExpensesPage({
                 size="icon-sm"
                 aria-label="Fermer"
                 title="Fermer"
-                disabled={isSubmitting}
+                disabled={expenseForm.formState.isSubmitting}
                 className="-mr-3 -mt-3 max-md:size-11 md:-mr-2 md:-mt-2"
               >
                 <X aria-hidden="true" />
@@ -1273,50 +1241,57 @@ export function ExpensesPage({
             </DialogClose>
           </DialogHeader>
 
-          <form onSubmit={handleExpenseSubmit} className="space-y-4 pt-1">
+          <form onSubmit={submitExpense} className="space-y-4 pt-1">
             {/* Category Select */}
             <div className="space-y-1.5">
               <Label htmlFor="dialog-category" className="text-xs font-display font-medium text-ink">
                 Catégorie de dépense
               </Label>
-              <Select
-                value={categoryId}
-                onValueChange={(val) => {
-                  setCategoryId(val)
-                  setFieldErrors((prev) => ({ ...prev, category: undefined }))
-                }}
-              >
-                <SelectTrigger id="dialog-category" className="w-full bg-paper border-ink/15 text-sm text-ink max-md:!h-11">
-                  <SelectValue placeholder="Choisir une catégorie…">
-                    {categoryId === "new-category-placeholder"
-                      ? "+ Créer une nouvelle catégorie"
-                      : categories.find((category) => category.id === categoryId)?.name}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="bg-paper border-ink/10">
-                  <SelectGroup>
-                    {categories.map((c) => (
-                      <SelectItem key={c.id} value={c.id} textValue={c.name}>
-                        <div className="flex flex-col text-left">
-                          <span className="font-medium text-ink">{c.name}</span>
-                          {c.description && (
-                            <span className="text-xs text-ink-soft">{c.description}</span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="new-category-placeholder" className="text-teal-950 font-display font-medium">
-                      + Créer une nouvelle catégorie
-                    </SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              {fieldErrors.category && (
-                <p className="text-xs text-negative font-medium">{fieldErrors.category}</p>
+              <Controller
+                control={expenseForm.control}
+                name="categoryId"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger
+                      id="dialog-category"
+                      ref={field.ref}
+                      aria-invalid={!!expenseForm.formState.errors.categoryId}
+                      className="w-full bg-paper border-ink/15 text-sm text-ink max-md:!h-11"
+                    >
+                      <SelectValue placeholder="Choisir une catégorie…">
+                        {field.value === NEW_CATEGORY_SENTINEL
+                          ? "+ Créer une nouvelle catégorie"
+                          : categories.find((category) => category.id === field.value)?.name}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="bg-paper border-ink/10">
+                      <SelectGroup>
+                        {categories.map((c) => (
+                          <SelectItem key={c.id} value={c.id} textValue={c.name}>
+                            <div className="flex flex-col text-left">
+                              <span className="font-medium text-ink">{c.name}</span>
+                              {c.description && (
+                                <span className="text-xs text-ink-soft">{c.description}</span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                        <SelectItem value={NEW_CATEGORY_SENTINEL} className="text-teal-950 font-display font-medium">
+                          + Créer une nouvelle catégorie
+                        </SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {expenseForm.formState.errors.categoryId && (
+                <p className="text-xs text-negative font-medium">
+                  {expenseForm.formState.errors.categoryId.message}
+                </p>
               )}
             </div>
 
-            {categoryId === "new-category-placeholder" && (
+            {expenseCategoryIdValue === NEW_CATEGORY_SENTINEL && (
               <div className="space-y-3 bg-teal-100/50 p-3 rounded-lg border border-teal-950/20">
                 <div className="space-y-1">
                   <Label
@@ -1328,11 +1303,7 @@ export function ExpensesPage({
                   </Label>
                   <Input
                     id="dialog-newCategory"
-                    value={newCategoryName}
-                    onChange={(e) => {
-                      setNewCategoryName(e.target.value)
-                      setFieldErrors((prev) => ({ ...prev, category: undefined }))
-                    }}
+                    {...expenseForm.register("newCategoryName")}
                     placeholder="ex. Mobilier de classe"
                     className="bg-paper text-xs border-ink/15 text-ink max-md:h-11"
                   />
@@ -1343,8 +1314,7 @@ export function ExpensesPage({
                   </Label>
                   <Input
                     id="dialog-newCategoryDesc"
-                    value={newCategoryDesc}
-                    onChange={(e) => setNewCategoryDesc(e.target.value)}
+                    {...expenseForm.register("newCategoryDesc")}
                     placeholder="ex. Achats de tables, bancs et chaises"
                     className="bg-paper text-xs border-ink/15 text-ink max-md:h-11"
                   />
@@ -1362,21 +1332,24 @@ export function ExpensesPage({
                   <Input
                     id="dialog-amount"
                     inputMode="numeric"
-                    value={amount}
-                    onChange={(e) => {
-                      const formatted = formatAmountInput(e.target.value)
-                      setAmount(formatted)
-                      setFieldErrors((prev) => ({ ...prev, amount: undefined }))
-                    }}
                     placeholder="150 000"
                     className="pr-12 text-sm font-semibold border-ink/15 bg-paper text-ink max-md:h-11"
+                    {...expenseForm.register("amount", {
+                      // Reformats the display value (space-grouped digits)
+                      // before react-hook-form ever sees it, same as the
+                      // pre-migration onChange did.
+                      onChange: (e) => {
+                        e.target.value = formatAmountInput(e.target.value)
+                      },
+                    })}
+                    aria-invalid={!!expenseForm.formState.errors.amount}
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-soft pointer-events-none">
                     F CFA
                   </span>
                 </div>
-                {fieldErrors.amount && (
-                  <p className="text-xs text-negative font-medium">{fieldErrors.amount}</p>
+                {expenseForm.formState.errors.amount && (
+                  <p className="text-xs text-negative font-medium">{expenseForm.formState.errors.amount.message}</p>
                 )}
               </div>
 
@@ -1384,36 +1357,44 @@ export function ExpensesPage({
                 <Label htmlFor="dialog-spentAt" className="text-xs font-display font-medium text-ink">
                   Date de la dépense
                 </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      id="dialog-spentAt"
-                      variant="outline"
-                      className={cn(
-                        "h-10 w-full justify-start text-left text-xs font-normal bg-paper border-ink/15 text-ink max-md:h-11",
-                        !spentAtDate && "text-ink-soft"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 size-4 text-ink-soft" />
-                      {spentAtDate ? (
-                        format(spentAtDate, "PPP", { locale: fr })
-                      ) : (
-                        <span>Choisir une date…</span>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 bg-paper border-ink/10" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={spentAtDate}
-                      onSelect={setSpentAtDate}
-                      locale={fr}
-                      disabled={{ after: startOfToday() }}
-                    />
-                  </PopoverContent>
-                </Popover>
-                {fieldErrors.spentAt && (
-                  <p className="text-xs text-negative font-medium">{fieldErrors.spentAt}</p>
+                <Controller
+                  control={expenseForm.control}
+                  name="spentAt"
+                  render={({ field }) => (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="dialog-spentAt"
+                          ref={field.ref}
+                          type="button"
+                          variant="outline"
+                          className={cn(
+                            "h-10 w-full justify-start text-left text-xs font-normal bg-paper border-ink/15 text-ink max-md:h-11",
+                            !field.value && "text-ink-soft"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 size-4 text-ink-soft" />
+                          {field.value ? (
+                            format(field.value, "PPP", { locale: fr })
+                          ) : (
+                            <span>Choisir une date…</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 bg-paper border-ink/10" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          locale={fr}
+                          disabled={{ after: startOfToday() }}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                />
+                {expenseForm.formState.errors.spentAt && (
+                  <p className="text-xs text-negative font-medium">{expenseForm.formState.errors.spentAt.message}</p>
                 )}
               </div>
             </div>
@@ -1422,16 +1403,45 @@ export function ExpensesPage({
             <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="dialog-payee" className="text-xs font-display font-medium text-ink">Payé à</Label>
-                <Input id="dialog-payee" maxLength={255} value={payee} onChange={(e) => { setPayee(e.target.value); setFieldErrors((prev) => ({ ...prev, payee: undefined })) }} placeholder="ex. M. Kouamé / Quincaillerie Awa" className="text-xs border-ink/15 bg-paper text-ink max-md:h-11" />
-                {fieldErrors.payee && <p className="text-xs text-negative font-medium">{fieldErrors.payee}</p>}
+                <Input
+                  id="dialog-payee"
+                  maxLength={255}
+                  {...expenseForm.register("payee")}
+                  placeholder="ex. M. Kouamé / Quincaillerie Awa"
+                  aria-invalid={!!expenseForm.formState.errors.payee}
+                  className="text-xs border-ink/15 bg-paper text-ink max-md:h-11"
+                />
+                {expenseForm.formState.errors.payee && (
+                  <p className="text-xs text-negative font-medium">{expenseForm.formState.errors.payee.message}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dialog-payment-method" className="text-xs font-display font-medium text-ink">Moyen de paiement</Label>
-                <Select value={paymentMethod} onValueChange={(value) => { setPaymentMethod(value as typeof paymentMethod); setFieldErrors((prev) => ({ ...prev, paymentMethod: undefined })) }}>
-                  <SelectTrigger id="dialog-payment-method" className="w-full bg-paper border-ink/15 text-sm text-ink max-md:!h-11"><SelectValue placeholder="Choisir un moyen…" /></SelectTrigger>
-                  <SelectContent className="bg-paper border-ink/10"><SelectItem value="cash">Espèces</SelectItem><SelectItem value="mobile_money">Mobile money</SelectItem><SelectItem value="bank_transfer">Virement bancaire</SelectItem><SelectItem value="other">Autre</SelectItem></SelectContent>
-                </Select>
-                {fieldErrors.paymentMethod && <p className="text-xs text-negative font-medium">{fieldErrors.paymentMethod}</p>}
+                <Controller
+                  control={expenseForm.control}
+                  name="paymentMethod"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger
+                        id="dialog-payment-method"
+                        ref={field.ref}
+                        aria-invalid={!!expenseForm.formState.errors.paymentMethod}
+                        className="w-full bg-paper border-ink/15 text-sm text-ink max-md:!h-11"
+                      >
+                        <SelectValue placeholder="Choisir un moyen…" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-paper border-ink/10">
+                        <SelectItem value="cash">Espèces</SelectItem>
+                        <SelectItem value="mobile_money">Mobile money</SelectItem>
+                        <SelectItem value="bank_transfer">Virement bancaire</SelectItem>
+                        <SelectItem value="other">Autre</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {expenseForm.formState.errors.paymentMethod && (
+                  <p className="text-xs text-negative font-medium">{expenseForm.formState.errors.paymentMethod.message}</p>
+                )}
               </div>
             </div>
 
@@ -1444,16 +1454,13 @@ export function ExpensesPage({
                 id="dialog-description"
                 maxLength={255}
                 rows={3}
-                value={description}
-                onChange={(e) => {
-                  setDescription(e.target.value)
-                  setFieldErrors((prev) => ({ ...prev, description: undefined }))
-                }}
+                {...expenseForm.register("description")}
                 placeholder="ex. Achat de 20 bancs en bois pour les classes de 3ème"
+                aria-invalid={!!expenseForm.formState.errors.description}
                 className="resize-none text-xs border-ink/15 bg-paper text-ink"
               />
-              {fieldErrors.description && (
-                <p className="text-xs text-negative font-medium">{fieldErrors.description}</p>
+              {expenseForm.formState.errors.description && (
+                <p className="text-xs text-negative font-medium">{expenseForm.formState.errors.description.message}</p>
               )}
             </div>
 
@@ -1474,11 +1481,11 @@ export function ExpensesPage({
                     if (err) {
                       setReceiptFile(null)
                       e.target.value = ""
-                      setFieldErrors((prev) => ({ ...prev, general: err }))
+                      setExpenseGeneralError(err)
                       return
                     }
                   }
-                  setFieldErrors((prev) => ({ ...prev, general: undefined }))
+                  setExpenseGeneralError(null)
                   setReceiptFile(file)
                 }}
                 className="sr-only !size-px"
@@ -1489,7 +1496,7 @@ export function ExpensesPage({
                 type="button"
                 variant="outline"
                 onClick={() => receiptInputRef.current?.click()}
-                disabled={isSubmitting}
+                disabled={expenseForm.formState.isSubmitting}
                 className="w-full cursor-pointer justify-start overflow-hidden max-md:h-11"
                 aria-label={receiptFile ? `Modifier la pièce justificative : ${receiptFile.name}` : "Ajouter un justificatif"}
                 title={receiptFile?.name}
@@ -1504,9 +1511,9 @@ export function ExpensesPage({
               </p>
             </div>
 
-            {fieldErrors.general && (
+            {expenseGeneralError && (
               <p className="text-xs text-negative font-medium bg-negative-bg p-2 rounded-sm border border-negative/20">
-                {fieldErrors.general}
+                {expenseGeneralError}
               </p>
             )}
 
@@ -1515,13 +1522,13 @@ export function ExpensesPage({
                 type="button"
                 variant="outline"
                 onClick={() => setCreateDialogOpen(false)}
-                disabled={isSubmitting}
+                disabled={expenseForm.formState.isSubmitting}
                 className="max-md:h-11"
               >
                 Annuler
               </Button>
-              <Button type="submit" disabled={isSubmitting} className="max-md:h-11">
-                {isSubmitting ? "Enregistrement…" : "Enregistrer la dépense"}
+              <Button type="submit" disabled={expenseForm.formState.isSubmitting} className="max-md:h-11">
+                {expenseForm.formState.isSubmitting ? "Enregistrement…" : "Enregistrer la dépense"}
               </Button>
             </DialogFooter>
           </form>
@@ -1605,7 +1612,7 @@ export function ExpensesPage({
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCategorySubmit} className="space-y-4 pt-1">
+          <form onSubmit={submitCategory} className="space-y-4 pt-1">
             <div className="space-y-1.5">
               <Label htmlFor="cat-name" className="text-xs font-display font-medium text-ink">
                 Nom de la catégorie
@@ -1613,14 +1620,14 @@ export function ExpensesPage({
               <Input
                 id="cat-name"
                 maxLength={255}
-                value={catName}
-                onChange={(e) => {
-                  setCatName(e.target.value)
-                  setCatError(null)
-                }}
+                {...categoryForm.register("name")}
                 placeholder="ex. Équipements informatiques"
+                aria-invalid={!!categoryForm.formState.errors.name}
                 className="border-ink/15 bg-paper text-ink text-xs"
               />
+              {categoryForm.formState.errors.name && (
+                <p className="text-xs text-negative font-medium">{categoryForm.formState.errors.name.message}</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -1630,16 +1637,15 @@ export function ExpensesPage({
               <Input
                 id="cat-desc"
                 maxLength={255}
-                value={catDescription}
-                onChange={(e) => setCatDescription(e.target.value)}
+                {...categoryForm.register("description")}
                 placeholder="ex. Ordinateurs, imprimantes et réseau"
                 className="border-ink/15 bg-paper text-ink text-xs"
               />
             </div>
 
-            {catError && (
+            {catGeneralError && (
               <p className="text-xs text-negative font-medium bg-negative-bg p-2 rounded-sm border border-negative/20">
-                {catError}
+                {catGeneralError}
               </p>
             )}
 
@@ -1648,12 +1654,12 @@ export function ExpensesPage({
                 type="button"
                 variant="outline"
                 onClick={() => setCategoryDialogOpen(false)}
-                disabled={catSubmitting}
+                disabled={categoryForm.formState.isSubmitting}
               >
                 Annuler
               </Button>
-              <Button type="submit" disabled={catSubmitting}>
-                {catSubmitting ? "Création..." : "Créer la catégorie"}
+              <Button type="submit" disabled={categoryForm.formState.isSubmitting}>
+                {categoryForm.formState.isSubmitting ? "Création..." : "Créer la catégorie"}
               </Button>
             </DialogFooter>
           </form>

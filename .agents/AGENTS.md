@@ -19,8 +19,8 @@ multi-tenant UI yet — see "Known gaps" below.
 
 ## Stack
 
-- **Frontend**: Vite + React 19 + TypeScript, deployed as a static SPA
-  (Cloudflare Pages target — not yet actually deployed there).
+- **Frontend**: Vite + React 19 + TypeScript, deployed as a static SPA to
+  Cloudflare Pages via `.github/workflows/deploy.yml` on every push to main.
 - **Backend**: Supabase — Postgres, Auth, Edge Functions. **No Adonis, no
   Tauri, no libSQL/Turso** — all three were removed. If you see references
   to them anywhere outside `docs/refactor-plan.md`'s history section, that
@@ -314,6 +314,42 @@ Every data table in the app follows this exact pattern — match it for any new 
 - Cells: `text-xs` always. Primary identifiers: `font-display font-semibold text-ink`. Subtext: `text-ink-soft`. Money: `formatMoney(amount)` with `font-display font-bold text-ink`.
 - Row actions: `h-8 w-8 text-ink-soft hover:text-teal-950 hover:bg-teal-100/50`.
 - Non-essential columns: `hidden sm:table-cell` / `hidden md:table-cell`.
+
+## Form validation convention (all six forms, migrated 2026-07-29)
+
+Every form validates through a `zod` schema resolved via `react-hook-form`
+(`@hookform/resolvers/zod`) — not hand-rolled `useState` + `src/lib/
+validation.ts` validators (that file still exists for reference but nothing
+uses it anymore). Match this pattern for any new form:
+- Schema lives next to the page/feature it belongs to (e.g.
+  `src/features/users/userFormSchemas.ts`), not centralized.
+- `useForm(..., { mode: "onTouched" })` — validates a field once it's been
+  left (or after the first submit attempt), then revalidates on every
+  change. This is the app's replacement for ad-hoc debounced-validation
+  effects.
+- `Controller` for shadcn `Select`/`Calendar`/anything that isn't a plain
+  `<input>`; `register(...)` for everything else.
+- On an invalid submit, call `focusFirstInvalidField(errors, order,
+  form.setFocus)` from `src/lib/formFocus.ts` — react-hook-form's own
+  `shouldFocusError` only calls `.focus()`, not `scrollIntoView`, which
+  several dialogs need on mobile (see the dialog-scroll gotcha above).
+- A file input (receipt, logo, avatar) stays outside the zod schema:
+  `validateUpload` already validates it immediately on selection, before
+  the form is ever submitted, so it doesn't fit the submit-time shape. It
+  shares the form's general-error slot instead.
+- Password fields validate against `src/lib/passwordPolicy.ts`
+  (`passwordMeetsPolicy`, mirroring GoTrue's real character-class policy)
+  and render the live checklist from `src/components/PasswordChecklist.tsx`
+  — both UsersPage's admin-created passwords and ProfileSection's
+  self-service change now share this, closing a gap where the two used to
+  check different rules.
+- An inline table-row editor (InvestorsPage) has no room for a per-field
+  error paragraph — it still runs through the same zod schema and
+  `focusFirstInvalidField`, but shows the first error via toast on failure
+  instead. Only reach for this exception when there's genuinely no space
+  for inline errors; the dialog/card shape is the default.
+- Full migration history and per-page gotchas: `docs/form-validation-
+  migration-2026-07-29.md`.
 
 ## Testing discipline
 

@@ -1,8 +1,12 @@
-import React, { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ChangeEvent } from "react"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "sonner"
 import { Upload, X, Save, Building, Calendar, Phone, MapPin, Lock } from "lucide-react"
 import { useSettings } from "@/lib/settings"
 import { uploadFile, deleteFile, validateUpload } from "@/lib/uploads"
+import { focusFirstInvalidField } from "@/lib/formFocus"
+import { collegeIdentitySchema, type CollegeIdentityFormValues } from "./collegeIdentitySchema"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -81,10 +85,16 @@ function EditableIdentity() {
     updateSettings,
   } = useSettings()
 
-  const [name, setName] = useState(collegeName)
-  const [address, setAddress] = useState(collegeAddress)
-  const [phone, setPhone] = useState(collegePhone)
-  const [year, setYear] = useState(academicYear)
+  const form = useForm<CollegeIdentityFormValues>({
+    resolver: zodResolver(collegeIdentitySchema),
+    mode: "onTouched",
+    defaultValues: {
+      name: collegeName,
+      address: collegeAddress,
+      phone: collegePhone,
+      academicYear: academicYear,
+    },
+  })
 
   // The new logo isn't uploaded to R2 until Save — selecting a file, then
   // hitting Annuler/navigating away, should never leave an orphaned object
@@ -98,10 +108,12 @@ function EditableIdentity() {
   // Re-seed if the stored settings change from elsewhere; local edits win
   // while the form is dirty, so this only ever syncs a clean form.
   useEffect(() => {
-    setName(collegeName)
-    setAddress(collegeAddress)
-    setPhone(collegePhone)
-    setYear(academicYear)
+    form.reset({
+      name: collegeName,
+      address: collegeAddress,
+      phone: collegePhone,
+      academicYear: academicYear,
+    })
     setPendingLogoFile(null)
     setPendingLogoPreview(null)
     setLogoRemoved(false)
@@ -115,15 +127,9 @@ function EditableIdentity() {
 
   const displayedLogo = logoRemoved ? null : pendingLogoPreview ?? collegeLogo
 
-  const hasChanges =
-    name !== collegeName ||
-    address !== collegeAddress ||
-    phone !== collegePhone ||
-    year !== academicYear ||
-    pendingLogoFile !== null ||
-    logoRemoved
+  const hasChanges = form.formState.isDirty || pendingLogoFile !== null || logoRemoved
 
-  function handleLogoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleLogoSelect(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = "" // allow re-selecting the same file after an error
     if (!file) return
@@ -153,62 +159,59 @@ function EditableIdentity() {
     setLogoRemoved(true)
   }
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault()
-    if (!name.trim()) {
-      toast.error("Le nom du collège est requis.")
-      return
-    }
+  const handleSave = form.handleSubmit(
+    async (values) => {
+      setSaving(true)
+      const previousLogoKey = collegeLogoKey
 
-    setSaving(true)
-    const previousLogoKey = collegeLogoKey
+      try {
+        let nextLogoKey = collegeLogoKey
+        if (pendingLogoFile) {
+          nextLogoKey = await uploadFile(pendingLogoFile, "logo")
+        } else if (logoRemoved) {
+          nextLogoKey = null
+        }
 
-    try {
-      let nextLogoKey = collegeLogoKey
-      if (pendingLogoFile) {
-        nextLogoKey = await uploadFile(pendingLogoFile, "logo")
-      } else if (logoRemoved) {
-        nextLogoKey = null
+        await updateSettings({
+          collegeName: values.name.trim(),
+          collegeLogoKey: nextLogoKey,
+          collegeAddress: values.address?.trim() || "",
+          collegePhone: values.phone?.trim() || "",
+          academicYear: values.academicYear?.trim() || "",
+        })
+
+        toast.success("Paramètres enregistrés.")
+
+        // Only remove the old object once the row pointing at the new one has
+        // safely committed — never the other way around. Best-effort: a
+        // failure here leaves an orphaned object, not a broken save.
+        if (previousLogoKey && previousLogoKey !== nextLogoKey) {
+          deleteFile(previousLogoKey, "logo").catch((err) =>
+            console.warn("Failed to delete previous logo from R2:", err)
+          )
+        }
+
+        if (previewUrlRef.current) {
+          URL.revokeObjectURL(previewUrlRef.current)
+          previewUrlRef.current = null
+        }
+        setPendingLogoFile(null)
+        setPendingLogoPreview(null)
+        setLogoRemoved(false)
+      } catch (err) {
+        console.error("Failed to save settings:", err)
+        toast.error(err instanceof Error ? err.message : "Enregistrement impossible.")
+      } finally {
+        setSaving(false)
       }
-
-      await updateSettings({
-        collegeName: name.trim(),
-        collegeLogoKey: nextLogoKey,
-        collegeAddress: address.trim(),
-        collegePhone: phone.trim(),
-        academicYear: year.trim(),
-      })
-
-      toast.success("Paramètres enregistrés.")
-
-      // Only remove the old object once the row pointing at the new one has
-      // safely committed — never the other way around. Best-effort: a
-      // failure here leaves an orphaned object, not a broken save.
-      if (previousLogoKey && previousLogoKey !== nextLogoKey) {
-        deleteFile(previousLogoKey, "logo").catch((err) =>
-          console.warn("Failed to delete previous logo from R2:", err)
-        )
-      }
-
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current)
-        previewUrlRef.current = null
-      }
-      setPendingLogoFile(null)
-      setPendingLogoPreview(null)
-      setLogoRemoved(false)
-    } catch (err) {
-      console.error("Failed to save settings:", err)
-      toast.error(err instanceof Error ? err.message : "Enregistrement impossible.")
-    } finally {
-      setSaving(false)
-    }
-  }
+    },
+    (errors) => focusFirstInvalidField(errors, ["name", "address", "phone", "academicYear"], form.setFocus)
+  )
 
   return (
     // noValidate: the college-name field below carries `required`, and
     // without this the browser blocks submission natively before
-    // `handleSave` ever runs — the toast validation it contains would be
+    // `handleSave` ever runs — the zod error it would show would be
     // unreachable for an empty field. Same failure diagnosed and fixed on
     // UsersPage's two forms; see the comment there for how it was confirmed.
     <form onSubmit={handleSave} className="space-y-6" noValidate>
@@ -279,12 +282,15 @@ function EditableIdentity() {
             </Label>
             <Input
               id="college-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              {...form.register("name")}
               placeholder="Ex. Collège Moderne de Bouaké"
+              aria-invalid={!!form.formState.errors.name}
               className="border-ink/15 bg-paper text-ink text-sm"
               required
             />
+            {form.formState.errors.name && (
+              <p className="text-xs text-negative font-medium">{form.formState.errors.name.message}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -294,8 +300,7 @@ function EditableIdentity() {
               </Label>
               <Input
                 id="academic-year"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
+                {...form.register("academicYear")}
                 placeholder="Ex. 2025 - 2026"
                 className="border-ink/15 bg-paper text-ink text-sm"
               />
@@ -307,8 +312,7 @@ function EditableIdentity() {
               </Label>
               <Input
                 id="college-phone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                {...form.register("phone")}
                 placeholder="Ex. +225 07 00 00 00 00"
                 className="border-ink/15 bg-paper text-ink text-sm"
               />
@@ -321,8 +325,7 @@ function EditableIdentity() {
             </Label>
             <Input
               id="college-address"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
+              {...form.register("address")}
               placeholder="Ex. Quartier Commerce, Rue des Banques, Bouaké"
               className="border-ink/15 bg-paper text-ink text-sm"
             />

@@ -5,7 +5,10 @@
 // email addresses requires the service_role key, which only exists inside
 // that function.
 
-import React, { useEffect, useRef, useState } from "react"
+import React, { useEffect, useState } from "react"
+import { useForm, Controller } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { focusFirstInvalidField } from "@/lib/formFocus"
 import {
   listAdminUsers,
   createAdminUser,
@@ -16,9 +19,13 @@ import {
 } from "@/lib/adminUsers"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/lib/auth"
-import { cn } from "@/lib/utils"
-import { email as emailRule, firstError, maxLength, required } from "@/lib/validation"
-import { useDebounced } from "@/lib/useDebounced"
+import {
+  createUserSchema,
+  editUserSchema,
+  type CreateUserFormValues,
+  type EditUserFormValues,
+} from "./userFormSchemas"
+import { PasswordChecklist } from "@/components/PasswordChecklist"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -63,7 +70,6 @@ import {
   Eye,
   EyeOff,
   Clock,
-  Check,
   Trash2,
 } from "lucide-react"
 import { ActivityFeed } from "@/features/activity/ActivityFeed"
@@ -82,95 +88,9 @@ interface ApiRole {
   label: string
 }
 
-interface UserFormErrors {
-  name?: string
-  email?: string
-  password?: string
-  role?: string
-  general?: string
-}
-
-/** Field priority when more than one is invalid — top to bottom as they
- *  appear in the form, since that's the order a person reads and tabs
- *  through them in. */
-const FIELD_ORDER: (keyof UserFormErrors)[] = ["name", "email", "password", "role"]
-
-/**
- * Moves both keyboard focus and the viewport to the first invalid field.
- * `scrollIntoView` matters here specifically because both dialogs now scroll
- * internally on a phone (`max-h-[90svh] overflow-y-auto` — see AGENTS.md) —
- * a field below the fold can be invalid with nothing on screen to say so,
- * and `focus()` alone does not guarantee a scroll inside a nested scroll
- * container the way it would for the top-level page.
- */
-function focusFirstInvalidField(
-  errors: UserFormErrors,
-  refs: Partial<Record<keyof UserFormErrors, React.RefObject<HTMLElement | null>>>
-) {
-  const firstKey = FIELD_ORDER.find((key) => errors[key])
-  const el = firstKey ? refs[firstKey]?.current : null
-  if (!el) return
-  el.focus()
-  el.scrollIntoView({ behavior: "smooth", block: "center" })
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-
-// Mirrors the hosted project's actual GoTrue policy — confirmed 2026-07-28
-// from the literal rejection text ("Password should contain at least one
-// character of each: ..."), not derived from supabase/config.toml, whose
-// `minimum_password_length` only governs the local Docker stack (never
-// successfully started here — see AGENTS.md) and doesn't state a character-
-// class rule at all. If the Dashboard policy changes, this drifts from it
-// silently — there is no endpoint that reports the policy back to the
-// client, so the only way to keep this honest is to update it by hand
-// against the next real rejection.
-const PASSWORD_SPECIAL_CHARS = "!@#$%^&*()_+-=[]{};'\\:\"|<>?,./`~"
-
-interface PasswordCheck {
-  label: string
-  met: boolean
-}
-
-function passwordChecks(pw: string): PasswordCheck[] {
-  return [
-    { label: "Une lettre minuscule", met: /[a-z]/.test(pw) },
-    { label: "Une lettre majuscule", met: /[A-Z]/.test(pw) },
-    { label: "Un chiffre", met: /[0-9]/.test(pw) },
-    { label: "Un caractère spécial (!@#...)", met: [...pw].some((c) => PASSWORD_SPECIAL_CHARS.includes(c)) },
-  ]
-}
-
-function passwordMeetsPolicy(pw: string): boolean {
-  return passwordChecks(pw).every((c) => c.met)
-}
-
-const PASSWORD_POLICY_MESSAGE =
-  "Le mot de passe doit contenir au moins une minuscule, une majuscule, un chiffre et un caractère spécial."
-
-/** Shown before submission, not just on rejection — the whole point is that
- *  the rule is known while typing, not discovered after a round trip against
- *  a masked field. */
-function PasswordChecklist({ password }: { password: string }) {
-  return (
-    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5">
-      {passwordChecks(password).map((c) => (
-        <li
-          key={c.label}
-          className={cn(
-            "text-2xs flex items-center gap-1",
-            c.met ? "text-positive" : "text-ink-soft"
-          )}
-        >
-          {c.met ? <Check className="size-3 shrink-0" /> : <span className="size-3 shrink-0" />}
-          {c.label}
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 // A new account is "En attente" until the person completes their first sign-
 // in — purely a read of GoTrue's own `last_sign_in_at`, not a separate flag
@@ -204,13 +124,7 @@ function StatusBadge({ user }: { user: ApiUser }) {
   return <Badge variant={STATUS_BADGE_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
 }
 
-interface UsersPageProps {
-  profileModeForceUserId?: string
-}
-
-export function UsersPage({
-  profileModeForceUserId,
-}: UsersPageProps) {
+export function UsersPage() {
   const { user: me } = useAuth()
   const isAdmin = me?.role === "admin" || me?.role === "super_admin"
   // The archive of soft-deleted accounts is super_admin only — an admin
@@ -223,74 +137,44 @@ export function UsersPage({
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
 
-  // Navigation sub-views
-  // The URL owns which record is open. /profile pins it to the signed-in user
-  // instead, which is why this is not simply `useParams().id`.
+  // Navigation sub-views — the URL owns which record is open.
   const { id: routeUserId } = useParams()
   const navigate = useNavigate()
-  const selectedUserId = profileModeForceUserId ?? routeUserId ?? null
+  const selectedUserId = routeUserId ?? null
 
   // Filters and search
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedRole, setSelectedRole] = useState("all")
   const [selectedStatus, setSelectedStatus] = useState("all")
 
-  // Create form
+  // Create form — react-hook-form + zod (userFormSchemas.ts). `mode:
+  // "onTouched"` validates a field once it's been left (or after the first
+  // submit attempt), then keeps revalidating on every change — this is what
+  // replaces the old hand-rolled debounce-then-check-email-format effect.
   const [showForm, setShowForm] = useState(false)
-  const [createName, setCreateName] = useState("")
-  const [createEmail, setCreateEmail] = useState("")
-  const [createPhone, setCreatePhone] = useState("")
-  const [createPassword, setCreatePassword] = useState("")
   const [showCreatePassword, setShowCreatePassword] = useState(false)
-  const [createRole, setCreateRole] = useState("")
-  const [createSubmitting, setCreateSubmitting] = useState(false)
-  const [createFieldErrors, setCreateFieldErrors] = useState<UserFormErrors>({})
-  const createNameRef = useRef<HTMLInputElement>(null)
-  const createEmailRef = useRef<HTMLInputElement>(null)
-  const createPasswordRef = useRef<HTMLInputElement>(null)
-  const createRoleRef = useRef<HTMLButtonElement>(null)
+  const createForm = useForm<CreateUserFormValues>({
+    resolver: zodResolver(createUserSchema),
+    mode: "onTouched",
+    defaultValues: { name: "", email: "", phone: "", password: "", roleId: "" },
+  })
+  const createPasswordValue = createForm.watch("password")
 
   // Detail/Edit view state
   const [detailUser, setDetailUser] = useState<ApiUser | null>(null)
-  const [editName, setEditName] = useState("")
-  const [editEmail, setEditEmail] = useState("")
-  const [editPhone, setEditPhone] = useState("")
-  const [editRole, setEditRole] = useState("")
-  const [editPassword, setEditPassword] = useState("") // Optional on edit
   const [showEditPassword, setShowEditPassword] = useState(false)
-  const [editSubmitting, setEditSubmitting] = useState(false)
-  const [editFieldErrors, setEditFieldErrors] = useState<UserFormErrors>({})
-  const editNameRef = useRef<HTMLInputElement>(null)
-  const editEmailRef = useRef<HTMLInputElement>(null)
-  const editPasswordRef = useRef<HTMLInputElement>(null)
-  const editRoleRef = useRef<HTMLButtonElement>(null)
+  const editForm = useForm<EditUserFormValues>({
+    resolver: zodResolver(editUserSchema),
+    mode: "onTouched",
+    defaultValues: { name: "", email: "", phone: "", roleId: "", password: "" },
+  })
+  const editPasswordValue = editForm.watch("password") ?? ""
   const [actionLoading, setActionLoading] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   // super_admin only — a separate view rather than a filter pill, since a
   // soft-deleted account isn't a status like the others, it's a different
   // kind of row: no actions, no edit, nothing but a record of what happened.
   const [showArchive, setShowArchive] = useState(false)
-
-  // Live email format check — flags an invalid address once typing pauses,
-  // instead of waiting for submit to be the first time the user hears about
-  // it. Debounced, not checked on every keystroke: validating "amadou@colleg"
-  // as invalid while the user is still mid-word toward "amadou@college.ci"
-  // would flag a shape that was never meant to be final. Only checks format,
-  // never "required" — an empty field mid-typing isn't a mistake yet, and
-  // submit already covers that case.
-  const debouncedCreateEmail = useDebounced(createEmail, 500)
-  useEffect(() => {
-    if (!debouncedCreateEmail.trim()) return
-    const err = emailRule("Adresse email invalide.")(debouncedCreateEmail)
-    setCreateFieldErrors((prev) => ({ ...prev, email: err }))
-  }, [debouncedCreateEmail])
-
-  const debouncedEditEmail = useDebounced(editEmail, 500)
-  useEffect(() => {
-    if (!debouncedEditEmail.trim()) return
-    const err = emailRule("Adresse email invalide.")(debouncedEditEmail)
-    setEditFieldErrors((prev) => ({ ...prev, email: err }))
-  }, [debouncedEditEmail])
 
   // ---------------------------------------------------------------------------
   // Load users & roles
@@ -310,20 +194,24 @@ export function UsersPage({
       setRoles(rolesList)
       if (rolesList.length > 0) {
         const defaultRole = rolesList.find((r) => r.id === "investor") || rolesList[0]
-        setCreateRole(defaultRole.id)
+        createForm.setValue("roleId", defaultRole.id)
       }
 
       // If viewing a details view, load/refresh the active profile user
-      const targetId = selectedUserId || profileModeForceUserId
-      if (targetId) {
-        const matched = usersRes.data.users.find((u) => u.id === targetId)
+      if (selectedUserId) {
+        const matched = usersRes.data.users.find((u) => u.id === selectedUserId)
         if (matched) {
           setDetailUser(matched)
-          setEditName(matched.name)
-          setEditEmail(matched.email)
-          setEditPhone(matched.phone || "")
-          setEditRole(matched.roleId)
-          setEditFieldErrors({})
+          // reset(), not individual setValue calls — this also clears
+          // isDirty/errors from any previous edit session on this same page
+          // instance (profile mode never unmounts between users).
+          editForm.reset({
+            name: matched.name,
+            email: matched.email,
+            phone: matched.phone || "",
+            roleId: matched.roleId,
+            password: "",
+          })
         }
       }
     } catch (err) {
@@ -335,18 +223,12 @@ export function UsersPage({
 
   useEffect(() => {
     loadData()
-  }, [selectedUserId, profileModeForceUserId])
+  }, [selectedUserId])
 
   // Helpers to fetch role attributes
   // Only once detailUser has resolved — a crumb reading "Détails : undefined"
-  // while the fetch is in flight is worse than no crumb. Suppressed entirely on
-  // /profile: there is no list to go back to there, so a trailing crumb would
-  // turn "Mon compte" into a link pointing at the page you are already on.
-  useSetPageTitle(
-    !profileModeForceUserId && selectedUserId && detailUser
-      ? `Détails : ${detailUser.name}`
-      : null
-  )
+  // while the fetch is in flight is worse than no crumb.
+  useSetPageTitle(selectedUserId && detailUser ? `Détails : ${detailUser.name}` : null)
 
   function getRoleLabel(roleId: string): string {
     const r = roles.find((role) => role.id === roleId)
@@ -361,146 +243,79 @@ export function UsersPage({
   // Create user
   // ---------------------------------------------------------------------------
 
-  function validateCreateForm(): UserFormErrors {
-    const errors: UserFormErrors = {}
-    errors.name = firstError(createName, [
-      required("Le nom est requis."),
-      maxLength(255, "Le nom ne doit pas dépasser 255 caractères."),
-    ])
-    errors.email = firstError(createEmail, [
-      required("L'email est requis."),
-      emailRule("Adresse email invalide."),
-    ])
-    if (!createPassword) errors.password = "Le mot de passe est requis."
-    else if (!passwordMeetsPolicy(createPassword)) errors.password = PASSWORD_POLICY_MESSAGE
-    if (!createRole) errors.role = "Le rôle est requis."
-    return errors
-  }
+  const CREATE_FIELD_ORDER: (keyof CreateUserFormValues)[] = ["name", "email", "password", "roleId"]
+  const [createGeneralError, setCreateGeneralError] = useState<string | null>(null)
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-
-    const errors = validateCreateForm()
-    setCreateFieldErrors(errors)
-    if (Object.values(errors).some(Boolean)) {
-      focusFirstInvalidField(errors, {
-        name: createNameRef,
-        email: createEmailRef,
-        password: createPasswordRef,
-        role: createRoleRef,
-      })
-      return
-    }
-
-    setCreateSubmitting(true)
-    try {
-      await createAdminUser({
-        name: createName.trim(),
-        email: createEmail.trim(),
-        phone: createPhone.trim() || null,
-        password: createPassword,
-        roleId: createRole,
-      })
-      toast.success("Utilisateur créé avec succès.")
-      setCreateName("")
-      setCreateEmail("")
-      setCreatePhone("")
-      setCreatePassword("")
-      setCreateFieldErrors({})
-      setShowForm(false)
-      await loadData()
-    } catch (err) {
-      // Kept inline, not just a toast that can fade before it's read — this
-      // is the real message from the server (GoTrue's own rejection text for
-      // a password policy violation, for instance), not a generic fallback,
-      // so it's worth leaving visible next to the field it's about.
-      const message = err instanceof Error ? err.message : "Erreur lors de la création de l'utilisateur."
-      toast.error(message)
-      setCreateFieldErrors((prev) => ({ ...prev, general: message }))
-    } finally {
-      setCreateSubmitting(false)
-    }
-  }
+  const submitCreate = createForm.handleSubmit(
+    async (values) => {
+      setCreateGeneralError(null)
+      try {
+        await createAdminUser({
+          name: values.name.trim(),
+          email: values.email.trim(),
+          phone: values.phone?.trim() || null,
+          password: values.password,
+          roleId: values.roleId,
+        })
+        toast.success("Utilisateur créé avec succès.")
+        createForm.reset()
+        setShowForm(false)
+        await loadData()
+      } catch (err) {
+        // Kept inline, not just a toast that can fade before it's read — this
+        // is the real message from the server (GoTrue's own rejection text for
+        // a password policy violation, for instance), not a generic fallback,
+        // so it's worth leaving visible next to the field it's about.
+        const message = err instanceof Error ? err.message : "Erreur lors de la création de l'utilisateur."
+        toast.error(message)
+        setCreateGeneralError(message)
+      }
+    },
+    (errors) => focusFirstInvalidField(errors, CREATE_FIELD_ORDER, createForm.setFocus)
+  )
 
   // ---------------------------------------------------------------------------
   // Edit user
   // ---------------------------------------------------------------------------
 
-  /** Nothing to send if none of these differ from what's already loaded — a
-   *  password reset is the one exception, since typing one is always a
-   *  deliberate action regardless of whether the other fields moved. */
-  function isEditFormDirty(): boolean {
-    if (!detailUser) return false
-    return (
-      editName.trim() !== detailUser.name ||
-      editEmail.trim() !== detailUser.email ||
-      (editPhone.trim() || null) !== detailUser.phone ||
-      editRole !== detailUser.roleId ||
-      editPassword.trim() !== ""
-    )
-  }
+  const EDIT_FIELD_ORDER: (keyof EditUserFormValues)[] = ["name", "email", "password", "roleId"]
+  const [editGeneralError, setEditGeneralError] = useState<string | null>(null)
 
-  function validateEditForm(): UserFormErrors {
-    const errors: UserFormErrors = {}
-    errors.name = firstError(editName, [
-      required("Le nom est requis."),
-      maxLength(255, "Le nom ne doit pas dépasser 255 caractères."),
-    ])
-    errors.email = firstError(editEmail, [
-      required("L'email est requis."),
-      emailRule("Adresse email invalide."),
-    ])
-    if (!editRole) errors.role = "Le rôle est requis."
-    if (editPassword.trim() && !passwordMeetsPolicy(editPassword.trim())) {
-      errors.password = PASSWORD_POLICY_MESSAGE
-    }
-    return errors
-  }
+  const submitEditSave = editForm.handleSubmit(
+    async (values) => {
+      if (!detailUser) return
+      setEditGeneralError(null)
+      try {
+        const payload: Record<string, any> = {
+          name: values.name.trim(),
+          email: values.email.trim(),
+          phone: values.phone?.trim() || null,
+          roleId: values.roleId,
+        }
+        if (values.password?.trim()) {
+          payload.password = values.password
+        }
 
-  async function handleEditSave(e: React.FormEvent) {
+        await updateAdminUser(detailUser.id, payload)
+        toast.success("Fiche utilisateur mise à jour avec succès.")
+        await loadData()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Erreur lors de la mise à jour."
+        toast.error(message)
+        setEditGeneralError(message)
+      }
+    },
+    (errors) => focusFirstInvalidField(errors, EDIT_FIELD_ORDER, editForm.setFocus)
+  )
+
+  /** Belt-and-suspenders: the submit button is disabled while unchanged, but
+   *  Enter inside a text field still submits the form in most browsers
+   *  regardless of the default button's disabled state — so the guard has
+   *  to live here too, before react-hook-form even runs validation. */
+  function handleEditSave(e: React.FormEvent) {
     e.preventDefault()
-    if (!detailUser) return
-    // Belt-and-suspenders: the submit button is disabled while unchanged,
-    // but Enter inside a text field still submits the form in most browsers
-    // regardless of the default button's disabled state.
-    if (!isEditFormDirty()) return
-
-    const errors = validateEditForm()
-    setEditFieldErrors(errors)
-    if (Object.values(errors).some(Boolean)) {
-      focusFirstInvalidField(errors, {
-        name: editNameRef,
-        email: editEmailRef,
-        password: editPasswordRef,
-        role: editRoleRef,
-      })
-      return
-    }
-
-    setEditSubmitting(true)
-    try {
-      const payload: Record<string, any> = {
-        name: editName.trim(),
-        email: editEmail.trim(),
-        phone: editPhone.trim() || null,
-        roleId: editRole,
-      }
-      if (editPassword.trim()) {
-        payload.password = editPassword
-      }
-
-      await updateAdminUser(detailUser.id, payload)
-      toast.success("Fiche utilisateur mise à jour avec succès.")
-      setEditPassword("")
-      setEditFieldErrors({})
-      await loadData()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Erreur lors de la mise à jour."
-      toast.error(message)
-      setEditFieldErrors((prev) => ({ ...prev, general: message }))
-    } finally {
-      setEditSubmitting(false)
-    }
+    if (!editForm.formState.isDirty) return
+    submitEditSave()
   }
 
   // ---------------------------------------------------------------------------
@@ -630,21 +445,19 @@ export function UsersPage({
     // privileged account. Nobody, at any level, can act on their own row;
     // the server enforces both independently, this only decides what to show.
     const canToggleActive = !isMe && (!isSuperAdmin || me?.role === "super_admin")
-    const showBack = !profileModeForceUserId // Hide back button if forced to view own profile
-    const isDirty = isEditFormDirty()
+    const isDirty = editForm.formState.isDirty
+    const editErrors = editForm.formState.errors
 
     return (
       <div className="mx-auto max-w-3xl px-6 py-8">
-        {showBack && (
-          <Button
-            variant="ghost"
-            onClick={() => navigate("/users")}
-            className="mb-6 flex items-center gap-2 hover:bg-teal-100/50 text-ink-soft hover:text-ink font-display"
-          >
-            <ArrowLeft className="size-4" />
-            Retour à la liste
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          onClick={() => navigate("/users")}
+          className="mb-6 flex items-center gap-2 hover:bg-teal-100/50 text-ink-soft hover:text-ink font-display"
+        >
+          <ArrowLeft className="size-4" />
+          Retour à la liste
+        </Button>
 
         <div className="space-y-6">
           {/* Header Card */}
@@ -696,19 +509,14 @@ export function UsersPage({
                     </Label>
                     <Input
                       id="ed-name"
-                      ref={editNameRef}
-                      value={editName}
-                      onChange={(e) => {
-                        setEditName(e.target.value)
-                        setEditFieldErrors((prev) => ({ ...prev, name: undefined }))
-                      }}
+                      {...editForm.register("name")}
                       disabled={!isAdmin}
-                      aria-invalid={!!editFieldErrors.name}
+                      aria-invalid={!!editErrors.name}
                       className="border-ink/15 bg-paper text-ink"
                       required
                     />
-                    {editFieldErrors.name && (
-                      <p className="text-xs text-negative font-medium">{editFieldErrors.name}</p>
+                    {editErrors.name && (
+                      <p className="text-xs text-negative font-medium">{editErrors.name.message}</p>
                     )}
                   </div>
 
@@ -719,20 +527,15 @@ export function UsersPage({
                     </Label>
                     <Input
                       id="ed-email"
-                      ref={editEmailRef}
                       type="email"
-                      value={editEmail}
-                      onChange={(e) => {
-                        setEditEmail(e.target.value)
-                        setEditFieldErrors((prev) => ({ ...prev, email: undefined }))
-                      }}
+                      {...editForm.register("email")}
                       disabled={!isAdmin}
-                      aria-invalid={!!editFieldErrors.email}
+                      aria-invalid={!!editErrors.email}
                       className="border-ink/15 bg-paper text-ink"
                       required
                     />
-                    {editFieldErrors.email && (
-                      <p className="text-xs text-negative font-medium">{editFieldErrors.email}</p>
+                    {editErrors.email && (
+                      <p className="text-xs text-negative font-medium">{editErrors.email.message}</p>
                     )}
                   </div>
 
@@ -743,8 +546,7 @@ export function UsersPage({
                     </Label>
                     <Input
                       id="ed-phone"
-                      value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
+                      {...editForm.register("phone")}
                       placeholder="—"
                       disabled={!isAdmin}
                     />
@@ -756,29 +558,29 @@ export function UsersPage({
                     <ShieldAlert className="size-3.5" /> Rôle affecté
                     </Label>
                     {isAdmin && !isSuperAdmin ? (
-                      <Select
-                        value={editRole}
-                        onValueChange={(v) => {
-                          setEditRole(v)
-                          setEditFieldErrors((prev) => ({ ...prev, role: undefined }))
-                        }}
-                      >
-                        <SelectTrigger
-                          id="ed-role"
-                          ref={editRoleRef}
-                          aria-invalid={!!editFieldErrors.role}
-                          className="bg-paper"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {roles.map((r) => (
-                            <SelectItem key={r.id} value={r.id}>
-                              {r.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Controller
+                        control={editForm.control}
+                        name="roleId"
+                        render={({ field }) => (
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <SelectTrigger
+                              id="ed-role"
+                              ref={field.ref}
+                              aria-invalid={!!editErrors.roleId}
+                              className="bg-paper"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {roles.map((r) => (
+                                <SelectItem key={r.id} value={r.id}>
+                                  {r.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
                     ) : (
                       <Input
                         id="ed-role"
@@ -786,8 +588,8 @@ export function UsersPage({
                         disabled
                       />
                     )}
-                    {editFieldErrors.role && (
-                      <p className="text-xs text-negative font-medium">{editFieldErrors.role}</p>
+                    {editErrors.roleId && (
+                      <p className="text-xs text-negative font-medium">{editErrors.roleId.message}</p>
                     )}
                   </div>
 
@@ -800,15 +602,10 @@ export function UsersPage({
                       <div className="relative">
                         <Input
                           id="ed-pass"
-                          ref={editPasswordRef}
                           type={showEditPassword ? "text" : "password"}
-                          value={editPassword}
-                          onChange={(e) => {
-                            setEditPassword(e.target.value)
-                            setEditFieldErrors((prev) => ({ ...prev, password: undefined }))
-                          }}
+                          {...editForm.register("password")}
                           placeholder="Laisser vide pour ne pas modifier"
-                          aria-invalid={!!editFieldErrors.password}
+                          aria-invalid={!!editErrors.password}
                           className="pr-9"
                         />
                         <button
@@ -820,17 +617,17 @@ export function UsersPage({
                           {showEditPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                         </button>
                       </div>
-                      {editFieldErrors.password && (
-                        <p className="text-xs text-negative font-medium">{editFieldErrors.password}</p>
+                      {editErrors.password && (
+                        <p className="text-xs text-negative font-medium">{editErrors.password.message}</p>
                       )}
-                      {editPassword.length > 0 && <PasswordChecklist password={editPassword} />}
+                      {editPasswordValue.length > 0 && <PasswordChecklist password={editPasswordValue} />}
                     </div>
                   )}
                 </div>
 
-                {editFieldErrors.general && (
+                {editGeneralError && (
                   <p className="text-xs text-negative font-medium bg-negative-bg p-2 rounded-sm border border-negative/20">
-                    {editFieldErrors.general}
+                    {editGeneralError}
                   </p>
                 )}
 
@@ -890,8 +687,12 @@ export function UsersPage({
                     </div>
 
                     {/* Save Changes */}
-                    <Button type="submit" disabled={editSubmitting || !isDirty} title={!isDirty ? "Aucune modification à enregistrer" : undefined}>
-                      {editSubmitting ? "Enregistrement…" : "Enregistrer les modifications"}
+                    <Button
+                      type="submit"
+                      disabled={editForm.formState.isSubmitting || !isDirty}
+                      title={!isDirty ? "Aucune modification à enregistrer" : undefined}
+                    >
+                      {editForm.formState.isSubmitting ? "Enregistrement…" : "Enregistrer les modifications"}
                     </Button>
                   </div>
                 )}
@@ -1119,7 +920,10 @@ export function UsersPage({
         open={showForm}
         onOpenChange={(open) => {
           setShowForm(open)
-          if (!open) setCreateFieldErrors({})
+          // Field values deliberately persist across a cancel (only real
+          // submission errors get cleared) — matches the previous behavior
+          // where closing without submitting kept the draft for next time.
+          if (!open) setCreateGeneralError(null)
         }}
       >
         <DialogContent
@@ -1138,26 +942,21 @@ export function UsersPage({
           </DialogHeader>
 
           {/* noValidate — see the matching comment on the edit form above. */}
-          <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2 pt-1" noValidate>
+          <form onSubmit={submitCreate} className="grid gap-4 sm:grid-cols-2 pt-1" noValidate>
             <div className="flex flex-col gap-1.5 sm:col-span-2">
               <Label htmlFor="cu-name" className="text-xs font-display font-medium text-ink">
                 Nom complet *
               </Label>
               <Input
                 id="cu-name"
-                ref={createNameRef}
-                value={createName}
-                onChange={(e) => {
-                  setCreateName(e.target.value)
-                  setCreateFieldErrors((prev) => ({ ...prev, name: undefined }))
-                }}
+                {...createForm.register("name")}
                 placeholder="Ex. Koné Amadou"
                 required
-                aria-invalid={!!createFieldErrors.name}
+                aria-invalid={!!createForm.formState.errors.name}
                 className="border-ink/15 bg-paper text-ink text-sm"
               />
-              {createFieldErrors.name && (
-                <p className="text-xs text-negative font-medium">{createFieldErrors.name}</p>
+              {createForm.formState.errors.name && (
+                <p className="text-xs text-negative font-medium">{createForm.formState.errors.name.message}</p>
               )}
             </div>
             <div className="flex flex-col gap-1.5 sm:col-span-2">
@@ -1166,20 +965,15 @@ export function UsersPage({
               </Label>
               <Input
                 id="cu-email"
-                ref={createEmailRef}
                 type="email"
-                value={createEmail}
-                onChange={(e) => {
-                  setCreateEmail(e.target.value)
-                  setCreateFieldErrors((prev) => ({ ...prev, email: undefined }))
-                }}
+                {...createForm.register("email")}
                 placeholder="amadou@college.ci"
                 required
-                aria-invalid={!!createFieldErrors.email}
+                aria-invalid={!!createForm.formState.errors.email}
                 className="border-ink/15 bg-paper text-ink text-sm"
               />
-              {createFieldErrors.email && (
-                <p className="text-xs text-negative font-medium">{createFieldErrors.email}</p>
+              {createForm.formState.errors.email && (
+                <p className="text-xs text-negative font-medium">{createForm.formState.errors.email.message}</p>
               )}
             </div>
             <div className="flex flex-col gap-1.5">
@@ -1188,8 +982,7 @@ export function UsersPage({
               </Label>
               <Input
                 id="cu-phone"
-                value={createPhone}
-                onChange={(e) => setCreatePhone(e.target.value)}
+                {...createForm.register("phone")}
                 placeholder="+225 07 00 00 00 00"
                 className="border-ink/15 bg-paper text-ink text-sm"
               />
@@ -1201,16 +994,11 @@ export function UsersPage({
               <div className="relative">
                 <Input
                   id="cu-password"
-                  ref={createPasswordRef}
                   type={showCreatePassword ? "text" : "password"}
-                  value={createPassword}
-                  onChange={(e) => {
-                    setCreatePassword(e.target.value)
-                    setCreateFieldErrors((prev) => ({ ...prev, password: undefined }))
-                  }}
+                  {...createForm.register("password")}
                   placeholder="••••••••"
                   required
-                  aria-invalid={!!createFieldErrors.password}
+                  aria-invalid={!!createForm.formState.errors.password}
                   className="border-ink/15 bg-paper text-ink text-sm pr-9"
                 />
                 <button
@@ -1222,46 +1010,46 @@ export function UsersPage({
                   {showCreatePassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
-              {createFieldErrors.password && (
-                <p className="text-xs text-negative font-medium">{createFieldErrors.password}</p>
+              {createForm.formState.errors.password && (
+                <p className="text-xs text-negative font-medium">{createForm.formState.errors.password.message}</p>
               )}
-              <PasswordChecklist password={createPassword} />
+              <PasswordChecklist password={createPasswordValue} />
             </div>
             <div className="flex flex-col gap-1.5 sm:col-span-2">
               <Label htmlFor="cu-role" className="text-xs font-display font-medium text-ink">
                 Rôle *
               </Label>
-              <Select
-                value={createRole}
-                onValueChange={(v) => {
-                  setCreateRole(v)
-                  setCreateFieldErrors((prev) => ({ ...prev, role: undefined }))
-                }}
-              >
-                <SelectTrigger
-                  id="cu-role"
-                  ref={createRoleRef}
-                  aria-invalid={!!createFieldErrors.role}
-                  className="h-10 w-full border-ink/15 bg-paper text-ink text-sm"
-                >
-                  <SelectValue placeholder="Choisir un rôle" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {createFieldErrors.role && (
-                <p className="text-xs text-negative font-medium">{createFieldErrors.role}</p>
+              <Controller
+                control={createForm.control}
+                name="roleId"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger
+                      id="cu-role"
+                      ref={field.ref}
+                      aria-invalid={!!createForm.formState.errors.roleId}
+                      className="h-10 w-full border-ink/15 bg-paper text-ink text-sm"
+                    >
+                      <SelectValue placeholder="Choisir un rôle" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {createForm.formState.errors.roleId && (
+                <p className="text-xs text-negative font-medium">{createForm.formState.errors.roleId.message}</p>
               )}
             </div>
 
-            {createFieldErrors.general && (
+            {createGeneralError && (
               <p className="sm:col-span-2 text-xs text-negative font-medium bg-negative-bg p-2 rounded-sm border border-negative/20">
-                {createFieldErrors.general}
+                {createGeneralError}
               </p>
             )}
 
@@ -1271,14 +1059,14 @@ export function UsersPage({
                 variant="outline"
                 onClick={() => {
                   setShowForm(false)
-                  setCreateFieldErrors({})
+                  setCreateGeneralError(null)
                 }}
-                disabled={createSubmitting}
+                disabled={createForm.formState.isSubmitting}
               >
                 Annuler
               </Button>
-              <Button type="submit" disabled={createSubmitting} className="font-display">
-                {createSubmitting ? "Enregistrement…" : "Enregistrer l'utilisateur"}
+              <Button type="submit" disabled={createForm.formState.isSubmitting} className="font-display">
+                {createForm.formState.isSubmitting ? "Enregistrement…" : "Enregistrer l'utilisateur"}
               </Button>
             </DialogFooter>
           </form>

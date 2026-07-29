@@ -86,7 +86,7 @@ export function ActiveUserBar() {
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="bg-ink/10" />
           <DropdownMenuItem asChild className="cursor-pointer text-ink hover:bg-teal-100/50 hover:text-teal-950">
-            <Link to="/profile">
+            <Link to="/settings?tab=profile">
               <User className="mr-2 size-4" />
               <span className="font-display text-sm">Mon compte</span>
             </Link>

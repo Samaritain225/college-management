@@ -1,4 +1,5 @@
 import { Building, Info, UserCircle } from "lucide-react"
+import { useSearchParams } from "react-router-dom"
 import { useAuth } from "@/lib/auth"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { CollegeIdentitySection } from "./CollegeIdentitySection"
@@ -13,6 +14,10 @@ import { AboutSection } from "./AboutSection"
 export function SettingsPage() {
   const { user } = useAuth()
   const canManageCollege = user?.role === "admin" || user?.role === "super_admin"
+  // The header's "Mon compte" link lands here with ?tab=profile so it opens
+  // straight on the account tab instead of the college-identity default.
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get("tab") === "profile" ? "profile" : "identity"
 
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-6 space-y-6">
@@ -25,7 +30,7 @@ export function SettingsPage() {
         </p>
       </header>
 
-      <Tabs defaultValue="identity" className="space-y-6">
+      <Tabs defaultValue={initialTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="identity" className="flex items-center gap-2">
             <Building className="size-4 shrink-0" />
