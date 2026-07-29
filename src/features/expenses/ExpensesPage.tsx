@@ -75,6 +75,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   Calendar as CalendarIcon,
+  CircleCheck,
   Eye,
   FileText,
   FolderPlus,
@@ -143,6 +144,7 @@ export function ExpensesPage({
 
   // Creation expense dialog state
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [expenseSuccessDialogOpen, setExpenseSuccessDialogOpen] = useState(false)
   const [categoryId, setCategoryId] = useState("")
   const [newCategoryName, setNewCategoryName] = useState("")
   const [newCategoryDesc, setNewCategoryDesc] = useState("")
@@ -443,6 +445,7 @@ export function ExpensesPage({
       setCreateDialogOpen(false)
       await refresh()
       onChange?.()
+      setExpenseSuccessDialogOpen(true)
     } catch (err) {
       console.error(err)
       setFieldErrors({ general: "Impossible d'enregistrer la dépense. Réessayez." })
@@ -645,7 +648,7 @@ export function ExpensesPage({
     <>
     <div className="mx-auto max-w-5xl px-3 py-6 sm:px-4 sm:py-8 space-y-6 print:hidden">
       {/* Header & Main Navigation Actions */}
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-ink/10 pb-5">
+      <header className="flex flex-col gap-4 border-b border-ink/10 pb-5 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-ink">
             {activeTab === "expenses" ? "Dépenses" : "Catégories de dépenses"}
@@ -668,7 +671,7 @@ export function ExpensesPage({
                 onClick={handleOpenCreateExpenseDialog}
                 className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs shrink-0"
               >
-                <Plus className="size-4 shrink-0" />
+                <Plus data-icon="inline-start" aria-hidden="true" />
                 Enregistrer une dépense
               </Button>
             ) : (
@@ -676,7 +679,7 @@ export function ExpensesPage({
                 onClick={handleOpenCreateCategoryDialog}
                 className="inline-flex items-center gap-2 rounded-full h-10 px-4 font-display text-xs font-semibold shadow-2xs"
               >
-                <FolderPlus className="size-4 shrink-0" />
+                <FolderPlus data-icon="inline-start" aria-hidden="true" />
                 Nouvelle catégorie
               </Button>
             )}
@@ -1070,7 +1073,7 @@ export function ExpensesPage({
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent
           showCloseButton={false}
-          className="max-h-[90svh] overscroll-contain overflow-y-auto border border-ink/10 bg-paper p-6 sm:max-w-md sm:p-7"
+          className="max-h-[90svh] overscroll-contain overflow-x-hidden overflow-y-auto border border-ink/10 bg-paper p-6 sm:max-w-md sm:p-7"
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
@@ -1307,7 +1310,7 @@ export function ExpensesPage({
                   setFieldErrors((prev) => ({ ...prev, general: undefined }))
                   setReceiptFile(file)
                 }}
-                className="sr-only"
+                className="sr-only !size-px"
                 tabIndex={-1}
                 aria-hidden="true"
               />
@@ -1354,7 +1357,50 @@ export function ExpensesPage({
         </DialogContent>
       </Dialog>
 
-      {/* ----------------- DIALOG 2: PRINT REPORT MODAL ----------------- */}
+      {/* ----------------- DIALOG 2: EXPENSE SUCCESS ----------------- */}
+      <Dialog open={expenseSuccessDialogOpen} onOpenChange={setExpenseSuccessDialogOpen}>
+        <DialogContent
+          showCloseButton={false}
+          className="border border-ink/10 bg-paper p-6 sm:max-w-sm sm:p-7"
+        >
+          <DialogHeader className="items-center gap-3 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-positive-bg text-positive">
+              <CircleCheck className="size-6" aria-hidden="true" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <DialogTitle className="text-lg font-display font-bold text-ink text-balance">
+                Dépense enregistrée
+              </DialogTitle>
+              <DialogDescription className="text-xs text-ink-soft text-pretty">
+                La dépense a bien été ajoutée.
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="gap-2 pt-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="max-md:h-11"
+              onClick={() => {
+                setExpenseSuccessDialogOpen(false)
+                handleOpenCreateExpenseDialog()
+              }}
+            >
+              <Plus data-icon="inline-start" aria-hidden="true" />
+              Ajouter une autre dépense
+            </Button>
+            <Button
+              type="button"
+              className="max-md:h-11"
+              onClick={() => setExpenseSuccessDialogOpen(false)}
+            >
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ----------------- DIALOG 3: PRINT REPORT MODAL ----------------- */}
       <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
         <DialogContent className="sm:max-w-sm p-6 space-y-4 bg-paper border border-ink/10 max-h-[90svh] overflow-y-auto">
           <DialogHeader className="space-y-1">
