@@ -1,7 +1,0 @@
-# Cloudflare Pages SPA fallback.
-#
-# Every route below `/` is client-side. Without this, a hard refresh or a
-# shared link to any path other than `/` asks Pages for a file that does not
-# exist and gets a 404 — the app never boots. The 200 (rather than a 301)
-# keeps the original URL in the address bar so the router can read it.
-/*  /index.html  200
