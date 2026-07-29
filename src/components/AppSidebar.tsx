@@ -176,12 +176,16 @@ export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
           header beside it — no border needed to prove it, the sidebar's own
           tint against the content card does that.
           px-5 puts the logo on x=28, the same rail as the nav icons and the
-          group labels; at px-6 it sat 4px right of everything below it. */}
-      <SidebarHeader className="h-10 shrink-0 justify-center px-5 py-0 group-data-[collapsible=icon]:px-0">
-        {/* Collapsed, the rail is 50px and the mark is 32px, so any horizontal
-            padding pushes it past the edge — it was overflowing by 6px before
-            this header was touched. Drop the padding and centre it instead. */}
-        <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
+          group labels; at px-6 it sat 4px right of everything below it.
+          Collapsed rail is a fixed 3rem/48px (SIDEBAR_WIDTH_ICON) and the
+          logo mark is 32px, so px-2 (8px a side) centres it exactly — no
+          justify-center toggle needed, which matters because padding is
+          what makes this animatable at all. The sidebar's own width
+          transitions over 200ms linear; without a matching transition here,
+          px-5 -> px-0 used to snap instantly, so the logo jumped to its
+          collapsed position mid-slide instead of easing there with it. */}
+      <SidebarHeader className="h-10 shrink-0 justify-center px-5 py-0 transition-[padding] duration-200 ease-linear group-data-[collapsible=icon]:px-2">
+        <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-950 text-white font-display font-medium text-sm overflow-hidden shrink-0">
             {collegeLogo ? (
               <img src={collegeLogo} alt="Logo" className="h-full w-full object-cover" />
