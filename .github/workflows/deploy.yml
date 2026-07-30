@@ -1,18 +1,21 @@
 name: Deploy to Cloudflare Workers
 
-# Production only — a push to main is the only thing that ships.
+# main ships to production (wagnon); dev ships to the development Worker
+# (wagnon-dev). Which GitHub Environment (and therefore which Supabase
+# project's VITE_* vars) a run uses is selected below by branch.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production
+  group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
     permissions:
       contents: read
     steps:
@@ -47,4 +50,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: ${{ github.ref == 'refs/heads/main' && 'deploy' || 'deploy --env dev' }}

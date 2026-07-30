@@ -103,9 +103,34 @@ confirmation) are all shipped — see git log and `AGENTS.md`, not this file,
 for detail. Migration history is aligned; `supabase migration list` is the
 source of truth, not a count here.
 **The app is live**: `.github/workflows/deploy.yml` deploys to Cloudflare
-Pages on every push to main (`06daef5`, hardened in `654ae82`/`4ff51c2`).
-`AGENTS.md`'s "not yet actually deployed there" line is stale — fix it there
-too.
+Workers (not Pages — that line was stale) on every push to main (`06daef5`,
+hardened in `654ae82`/`4ff51c2`).
+
+## In flight — dev/prod environment split, 2026-07-30
+
+Sam created a second Supabase project, `college-management-prod`
+(ref `etouhinfpmiexfhjebzh`, eu-north-1), to be production; the existing
+project (`huqppixiuasclwmnngxh`) stays as dev. `origin/dev` is the
+development branch and already exists (was identical to `main` before this
+work started). Full plan: `.claude/plans/well-uh-currently-uh-twinkling-charm.md`
+(or ask — plan file paths aren't durable across machines, the summary below is).
+- **Landed**: `wrangler.jsonc` gained an `env.dev` block (`wagnon-dev`
+  Worker); `deploy.yml` now triggers on `main` and `dev`, picks the GitHub
+  Environment (`production`/`development`) by branch, and runs
+  `deploy --env dev` on the dev branch; `.mcp.json` gained a second entry,
+  `supabase-prod`, pointed at the prod project ref (needs a session restart
+  to connect — not yet connected as of this writing); `CONTRIBUTING.md`
+  documents the branch→environment→project table.
+- **Not yet done**: nothing has been applied to the prod Supabase project
+  itself — no migrations, no edge functions, no secrets, no college row, no
+  super admin. Sam still needs to: create the two GitHub Environments and
+  move/set the four `VITE_*` repo variables per environment, protect `main`
+  requiring a PR, create `admin@college.ci` in the prod Dashboard (agent
+  never touches passwords), and run the `secrets set` commands for
+  `LEGACY_SERVICE_ROLE_KEY` and the R2 credentials on the prod project once
+  the agent has fetched/identified them.
+- The R2 bucket is **shared** between dev and prod (Sam's call) — its CORS
+  policy needs the production Worker origin added once that origin is known.
 
 ## Audits and past plans — pointers only, see the docs
 
