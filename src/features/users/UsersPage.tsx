@@ -134,6 +134,10 @@ export function UsersPage() {
 
   const [users, setUsers] = useState<ApiUser[]>([])
   const [roles, setRoles] = useState<ApiRole[]>([])
+  // super_admin is seeded, never created from the app — keep it out of the
+  // create-user form's role choices without affecting the filter or an
+  // existing user's role-change control, which still need to show it.
+  const creatableRoles = roles.filter((r) => r.id !== "super_admin")
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
 
@@ -1033,7 +1037,7 @@ export function UsersPage() {
                       <SelectValue placeholder="Choisir un rôle" />
                     </SelectTrigger>
                     <SelectContent>
-                      {roles.map((role) => (
+                      {creatableRoles.map((role) => (
                         <SelectItem key={role.id} value={role.id}>
                           {role.label}
                         </SelectItem>
