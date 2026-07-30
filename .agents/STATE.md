@@ -111,26 +111,46 @@ hardened in `654ae82`/`4ff51c2`).
 Sam created a second Supabase project, `college-management-prod`
 (ref `etouhinfpmiexfhjebzh`, eu-north-1), to be production; the existing
 project (`huqppixiuasclwmnngxh`) stays as dev. `origin/dev` is the
-development branch and already exists (was identical to `main` before this
-work started). Full plan: `.claude/plans/well-uh-currently-uh-twinkling-charm.md`
-(or ask — plan file paths aren't durable across machines, the summary below is).
-- **Landed**: `wrangler.jsonc` gained an `env.dev` block (`wagnon-dev`
-  Worker); `deploy.yml` now triggers on `main` and `dev`, picks the GitHub
-  Environment (`production`/`development`) by branch, and runs
-  `deploy --env dev` on the dev branch; `.mcp.json` gained a second entry,
-  `supabase-prod`, pointed at the prod project ref (needs a session restart
-  to connect — not yet connected as of this writing); `CONTRIBUTING.md`
-  documents the branch→environment→project table.
-- **Not yet done**: nothing has been applied to the prod Supabase project
-  itself — no migrations, no edge functions, no secrets, no college row, no
-  super admin. Sam still needs to: create the two GitHub Environments and
-  move/set the four `VITE_*` repo variables per environment, protect `main`
-  requiring a PR, create `admin@college.ci` in the prod Dashboard (agent
-  never touches passwords), and run the `secrets set` commands for
-  `LEGACY_SERVICE_ROLE_KEY` and the R2 credentials on the prod project once
-  the agent has fetched/identified them.
-- The R2 bucket is **shared** between dev and prod (Sam's call) — its CORS
-  policy needs the production Worker origin added once that origin is known.
+development branch.
+
+**The first attempt at this shipped a real production outage**, now fixed —
+see the `CLOUDFLARE_ENV` gotcha in `AGENTS.md` for the mechanism. What
+happened: PR #8 added `--env dev` on the wrangler *deploy* step, but
+`@cloudflare/vite-plugin` resolves the environment at *build* time into
+`dist/wrangler.json`, so the flag selected nothing and a push to `dev`
+deployed straight onto the production Worker (`wagnon`). Separately, PR #9
+then merged to `main` and built against the *empty* prod Supabase project
+(zero tables — nobody could log in) because the prod database bootstrap
+hadn't happened yet, violating the plan's own sequencing note.
+
+- **Landed and verified**: all 23 migrations applied to prod, schema/advisors
+  match dev, college row + settings inserted (placeholder "Wagnon" name,
+  same UUID as dev — real branding still needs Sam's input). Both edge
+  functions deployed to prod; `LEGACY_SERVICE_ROLE_KEY` set there.
+  `wrangler.jsonc` now declares explicit `env.production` (`wagnon`) and
+  `env.dev` (`wagnon-dev`); `deploy.yml` sets `CLOUDFLARE_ENV` on the
+  **build** step and no longer passes `--env` to the deploy step. Verified
+  locally: `CLOUDFLARE_ENV=dev npm run build` produces
+  `dist/wrangler.json` with `"name":"wagnon-dev"`, and `=production`
+  produces `"name":"wagnon"`. Two GitHub Environments (`production`/
+  `development`) exist with correct per-project `VITE_*` values; `main` and
+  `dev` are both protected branches (PR required, admin-enforced, no
+  required-reviewer count).
+- **Not yet done**: the `super_admin` role binding (blocked on Sam creating
+  `admin@college.ci` in the prod Dashboard — agent never touches passwords).
+  The R2 secrets on prod are currently the literal string `<value>` — an
+  agent mistake, not a template — Sam needs to re-run `supabase secrets set
+  R2_ACCOUNT_ID=… R2_BUCKET=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=…
+  --project-ref etouhinfpmiexfhjebzh` with real values, or every upload on
+  production fails. R2 bucket CORS still needs the prod Worker origin added.
+  Leaked-password protection still off on prod (same open item as dev).
+- `.mcp.json` is temporarily repointed at the prod project ref for this
+  session's bootstrap work and is **uncommitted** — must be reverted to the
+  two-project form once the prod work is done. Attempting a second
+  simultaneous Supabase MCP connection (dev + prod) didn't work in this
+  environment: only one `mcp__supabase__*` tool namespace ever appeared,
+  regardless of how many entries were in `.mcp.json`.
+- The R2 bucket is **shared** between dev and prod (Sam's call).
 
 ## Audits and past plans — pointers only, see the docs
 
