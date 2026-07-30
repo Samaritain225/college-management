@@ -20,7 +20,13 @@ multi-tenant UI yet — see "Known gaps" below.
 ## Stack
 
 - **Frontend**: Vite + React 19 + TypeScript, deployed as a static SPA to
-  Cloudflare Pages via `.github/workflows/deploy.yml` on every push to main.
+  Cloudflare Workers via `.github/workflows/deploy.yml`. Two environments,
+  each its own Supabase project and its own Worker: `main` → production
+  (Supabase `etouhinfpmiexfhjebzh`, Worker `wagnon`), `dev` → development
+  (Supabase `huqppixiuasclwmnngxh`, Worker `wagnon-dev`). Which GitHub
+  Environment a workflow run uses — and therefore which `VITE_*` values get
+  built in — is selected by branch; see `CONTRIBUTING.md`'s Environments
+  table. The R2 bucket is shared across both.
 - **Backend**: Supabase — Postgres, Auth, Edge Functions. **No Adonis, no
   Tauri, no libSQL/Turso** — all three were removed. If you see references
   to them anywhere outside `docs/refactor-plan.md`'s history section, that
