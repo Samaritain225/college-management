@@ -110,6 +110,7 @@ export const router = createBrowserRouter([
         ),
         children: [
           { index: true, element: <InvestorsPage /> },
+          { path: ":id/edit", element: <InvestorsPage /> },
           { path: ":id", element: <InvestorsPage /> },
         ],
       },
