@@ -13,5 +13,27 @@
   },
   "compatibility_flags": [
     "nodejs_compat"
-  ]
+  ],
+  // `wrangler deploy --env dev` ships a second, separate Worker so pushes to
+  // `dev` never overwrite the production one. Most top-level keys are NOT
+  // inherited by named environments, so assets/compatibility/observability
+  // must all be restated here — omit one and this Worker deploys with no
+  // static assets or SPA fallback, 404ing on every route with no error at
+  // deploy time.
+  "env": {
+    "dev": {
+      "name": "wagnon-dev",
+      "compatibility_date": "2026-07-25",
+      "observability": {
+        "enabled": true
+      },
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application"
+      },
+      "compatibility_flags": [
+        "nodejs_compat"
+      ]
+    }
+  }
 }

@@ -16,10 +16,30 @@ rules and gotchas this document assumes you already know.
 You'll need at least one seeded user with a role in `user_roles` to log
 in — there's no self-service signup. See "Seeding a user" below.
 
+## Environments
+
+Two Supabase projects, two deployed Workers, one Cloudflare account:
+
+| Branch | GitHub Environment | Supabase project | Cloudflare Worker |
+| --- | --- | --- | --- |
+| `dev` | `development` | `huqppixiuasclwmnngxh` (dev) | `wagnon-dev` |
+| `main` | `production` | `etouhinfpmiexfhjebzh` (college-management-prod) | `wagnon` |
+
+A push to either branch deploys automatically (`.github/workflows/deploy.yml`
+picks the GitHub Environment, and therefore the `VITE_*` values, by branch).
+There is no manual promotion step — merging `dev` into `main` *is* the
+release. `main` should be a protected branch requiring a PR, so production is
+only ever reached through a reviewed merge, never a direct push.
+
+Local development (`npm run dev`) always points at the dev project via
+`.env.local` — never point local dev at production credentials.
+
 ## Branches and commits
 
 - Branch off `dev`, not `main`. Name branches by what they do:
-  `feat/...`, `fix/...`, `refactor/...`, `chore/...`.
+  `feat/...`, `fix/...`, `refactor/...`, `chore/...`. Merge feature branches
+  back into `dev`; open a PR from `dev` into `main` when you're ready to
+  release to production.
 - Commit messages: imperative summary line, then a body explaining *why*,
   not what (the diff already shows what). If a commit fixes a bug found
   while building something else, say so explicitly rather than burying it
