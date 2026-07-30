@@ -113,37 +113,52 @@ Sam created a second Supabase project, `college-management-prod`
 project (`huqppixiuasclwmnngxh`) stays as dev. `origin/dev` is the
 development branch.
 
-**The first attempt at this shipped a real production outage**, now fixed —
-see the `CLOUDFLARE_ENV` gotcha in `AGENTS.md` for the mechanism. What
-happened: PR #8 added `--env dev` on the wrangler *deploy* step, but
-`@cloudflare/vite-plugin` resolves the environment at *build* time into
-`dist/wrangler.json`, so the flag selected nothing and a push to `dev`
-deployed straight onto the production Worker (`wagnon`). Separately, PR #9
-then merged to `main` and built against the *empty* prod Supabase project
-(zero tables — nobody could log in) because the prod database bootstrap
-hadn't happened yet, violating the plan's own sequencing note.
+**The first attempt at this shipped a real production outage, now fully
+resolved and verified.** Two independent causes, both fixed:
 
-- **Landed and verified**: all 23 migrations applied to prod, schema/advisors
-  match dev, college row + settings inserted (placeholder "Wagnon" name,
-  same UUID as dev — real branding still needs Sam's input). Both edge
-  functions deployed to prod; `LEGACY_SERVICE_ROLE_KEY` set there.
-  `wrangler.jsonc` now declares explicit `env.production` (`wagnon`) and
-  `env.dev` (`wagnon-dev`); `deploy.yml` sets `CLOUDFLARE_ENV` on the
-  **build** step and no longer passes `--env` to the deploy step. Verified
-  locally: `CLOUDFLARE_ENV=dev npm run build` produces
-  `dist/wrangler.json` with `"name":"wagnon-dev"`, and `=production`
-  produces `"name":"wagnon"`. Two GitHub Environments (`production`/
-  `development`) exist with correct per-project `VITE_*` values; `main` and
-  `dev` are both protected branches (PR required, admin-enforced, no
-  required-reviewer count).
+1. PR #8 added `--env dev` on the wrangler *deploy* step, but
+   `@cloudflare/vite-plugin` resolves the environment at *build* time into
+   `dist/wrangler.json`, so the flag selected nothing and a push to `dev`
+   deployed straight onto the production Worker (`wagnon`). Separately, PR #9
+   then merged to `main` and built against the *empty* prod Supabase project
+   (zero tables — nobody could log in) because the prod database bootstrap
+   hadn't happened yet. Fixed: `wrangler.jsonc` now declares explicit
+   `env.production` (`wagnon`) and `env.dev` (`wagnon-dev`); `deploy.yml`
+   sets `CLOUDFLARE_ENV` on the **build** step and no longer passes `--env`
+   to the deploy step. See the `CLOUDFLARE_ENV` gotcha in `AGENTS.md`.
+2. **`wagnon` had Cloudflare's own native "Workers Builds" Git integration
+   connected** (Dashboard → Workers & Pages → wagnon → Settings → Builds),
+   completely separate from `.github/workflows/deploy.yml`. It auto-deployed
+   on pushes using its own dashboard-configured env vars — which still
+   pointed at the dev project — so even after the `CLOUDFLARE_ENV` fix
+   landed and GitHub Actions deployed correctly, this second pipeline kept
+   silently overwriting `wagnon` right back to the dev config on every push.
+   Confirmed by comparing the live-served asset filenames/content against
+   every known GitHub Actions run — none matched, proving a build from
+   *outside* our workflow was live. **Sam disabled it in the Cloudflare
+   dashboard.** If a Worker deploy ever again doesn't match what
+   `deploy.yml` built, check for this before debugging the workflow file —
+   it produces no trace in `gh run list` at all.
+
+- **Landed and verified end-to-end**: all 23 migrations applied to prod,
+  schema/advisors match dev, college row + settings inserted (placeholder
+  "Wagnon" name, same UUID as dev — real branding still needs Sam's input).
+  Both edge functions deployed to prod; `LEGACY_SERVICE_ROLE_KEY` and the R2
+  credentials are set there (verified via `supabase secrets list` — hashes
+  differ per key, no more `<value>` placeholder). Two GitHub Environments
+  (`production`/`development`) exist with correct per-project `VITE_*`
+  values; `main` and `dev` are both protected branches (PR required,
+  admin-enforced, no required-reviewer count). **Both Workers verified live**
+  by fetching their actual served JS bundles and grepping the embedded
+  Supabase URL: `wagnon` → `etouhinfpmiexfhjebzh.supabase.co` (prod),
+  `wagnon-dev` → `huqppixiuasclwmnngxh.supabase.co` (dev). Do not trust a
+  green Action checkmark alone for this class of bug — verify the live
+  bundle content, since two different failure modes here both produced
+  successful-looking deploys.
 - **Not yet done**: the `super_admin` role binding (blocked on Sam creating
   `admin@college.ci` in the prod Dashboard — agent never touches passwords).
-  The R2 secrets on prod are currently the literal string `<value>` — an
-  agent mistake, not a template — Sam needs to re-run `supabase secrets set
-  R2_ACCOUNT_ID=… R2_BUCKET=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=…
-  --project-ref etouhinfpmiexfhjebzh` with real values, or every upload on
-  production fails. R2 bucket CORS still needs the prod Worker origin added.
-  Leaked-password protection still off on prod (same open item as dev).
+  R2 bucket CORS still needs the prod Worker origin added. Leaked-password
+  protection still off on prod (same open item as dev).
 - `.mcp.json` is temporarily repointed at the prod project ref for this
   session's bootstrap work and is **uncommitted** — must be reverted to the
   two-project form once the prod work is done. Attempting a second

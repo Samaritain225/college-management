@@ -299,6 +299,23 @@ multi-tenant UI yet — see "Known gaps" below.
   deploy.yml`), and verify locally before trusting a green CI checkmark:
   `CLOUDFLARE_ENV=dev npm run build && grep '"name"' dist/wrangler.json`
   must print the Worker name you expect.
+- **A Cloudflare Worker can have its own native "Workers Builds" Git
+  integration (Dashboard → Workers & Pages → `<worker>` → Settings →
+  Builds), completely independent of `.github/workflows/deploy.yml`.** If
+  connected, it auto-deploys on pushes using dashboard-configured build
+  settings and env vars that have no relationship to the GitHub Actions
+  workflow or its `VITE_*` values. `wagnon` had this connected when the
+  dev/prod split shipped: even after `deploy.yml` was fixed and genuinely
+  deployed the correct build, this second pipeline kept silently
+  overwriting `wagnon` right back with its own (stale, dev-pointed) build
+  on every push — and it produces **no trace at all** in `gh run list` or
+  anywhere in the GitHub Actions logs, because it isn't a GitHub Actions
+  run. The only way this surfaced was fetching the actually-served JS bundle
+  from the live URL and grepping the embedded Supabase URL, then noticing
+  the asset filenames didn't match any known `deploy.yml` run's build
+  output. If a Worker's live behavior ever doesn't match what the workflow
+  built, check this dashboard setting before spending time re-debugging the
+  workflow file itself.
 
 ## File uploads (Cloudflare R2)
 
