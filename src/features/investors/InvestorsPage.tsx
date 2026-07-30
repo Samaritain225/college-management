@@ -1059,16 +1059,16 @@ export function InvestorsPage({
                 <TableHead className="text-xs font-display font-semibold text-ink-soft">Nom</TableHead>
                 <TableHead className="text-xs font-display font-semibold text-ink-soft hidden sm:table-cell">Téléphone</TableHead>
                 <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Convenu</TableHead>
-                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right hidden sm:table-cell">Libéré</TableHead>
+                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right hidden md:table-cell">Libéré</TableHead>
                 <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Restant</TableHead>
                 <TableHead className="text-xs font-display font-semibold text-ink-soft text-right hidden md:table-cell">Parts</TableHead>
-                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Actions</TableHead>
+                <TableHead className="text-xs font-display font-semibold text-ink-soft text-right sticky right-0 bg-paper border-l border-ink/10">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {investorPaging.pageRows.map((s) => {
                 return (
-                  <TableRow key={s.id} className="border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
+                  <TableRow key={s.id} className="group border-b border-ink/10 last:border-0 hover:bg-teal-100/30">
                     {/* Name */}
                     <TableCell className="text-xs font-display font-semibold text-ink">
                       <button
@@ -1090,7 +1090,7 @@ export function InvestorsPage({
                     </TableCell>
 
                     {/* Paid */}
-                    <TableCell className="text-right text-xs hidden sm:table-cell whitespace-nowrap">
+                    <TableCell className="text-right text-xs hidden md:table-cell whitespace-nowrap">
                       <span className="text-positive text-xs font-display font-bold">{formatMoney(s.paid)}</span>
                     </TableCell>
 
@@ -1108,8 +1108,10 @@ export function InvestorsPage({
                       {s.ownership_pct.toFixed(1)}%
                     </TableCell>
 
-                    {/* Actions */}
-                    <TableCell className="text-right">
+                    {/* Actions — sticky so it's always reachable without
+                        horizontal scrolling, even with every optional
+                        column showing (matches the header's sticky cell). */}
+                    <TableCell className="text-right sticky right-0 bg-paper group-hover:bg-teal-100/30 border-l border-ink/10">
                       <div className="flex items-center justify-end gap-1">
                         <Button
                           size="icon"
