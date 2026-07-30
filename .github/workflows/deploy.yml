@@ -31,10 +31,16 @@ jobs:
       # Type-check + build. tsc -b runs as part of `npm run build` (see
       # package.json) — a type error fails the deploy here, same as it
       # would locally, instead of shipping broken JS. @cloudflare/vite-plugin
-      # (wired into vite.config.ts) resolves wrangler.jsonc during this step
-      # and writes dist/wrangler.json, which the deploy step below reads.
+      # (wired into vite.config.ts) resolves wrangler.jsonc during THIS step
+      # and writes dist/wrangler.json — which is what the deploy step below
+      # actually deploys through, not wrangler.jsonc directly. That means
+      # the Cloudflare environment must be chosen here, via CLOUDFLARE_ENV,
+      # not with a `wrangler deploy --env` flag on the deploy step (that flag
+      # is a no-op against an already-flattened config — see the
+      # CLOUDFLARE_ENV gotcha in .agents/AGENTS.md).
       - run: npm run build
         env:
+          CLOUDFLARE_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'dev' }}
           # Build-time only — Vite inlines these into the bundle, so they
           # must be present now, not just at runtime. All four are
           # documented as public/safe to expose in .env.example
@@ -46,8 +52,10 @@ jobs:
           VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
           VITE_R2_PUBLIC_BASE_URL: ${{ vars.VITE_R2_PUBLIC_BASE_URL }}
 
+      # No --env flag here on purpose: the environment was already baked
+      # into dist/wrangler.json by the build step above via CLOUDFLARE_ENV.
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: ${{ github.ref == 'refs/heads/main' && 'deploy' || 'deploy --env dev' }}
+          command: deploy

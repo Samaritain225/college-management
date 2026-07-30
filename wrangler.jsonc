@@ -1,5 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // Top-level config is used by a bare `wrangler dev` / `npm run preview`
+  // locally, with no CLOUDFLARE_ENV set. Kept identical to env.production so
+  // local preview behaves like the real production Worker.
   "name": "wagnon",
   "compatibility_date": "2026-07-25",
   "observability": {
@@ -14,13 +17,35 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  // `wrangler deploy --env dev` ships a second, separate Worker so pushes to
-  // `dev` never overwrite the production one. Most top-level keys are NOT
-  // inherited by named environments, so assets/compatibility/observability
-  // must all be restated here — omit one and this Worker deploys with no
-  // static assets or SPA fallback, 404ing on every route with no error at
+  // @cloudflare/vite-plugin resolves the Cloudflare environment at BUILD
+  // time (via the CLOUDFLARE_ENV var) and writes the already-flattened
+  // result to dist/wrangler.json — wrangler then deploys through that
+  // redirected config, never this file directly. So the environment must be
+  // selected on the build step, not with `wrangler deploy --env X`; the
+  // latter is a silent no-op against a flattened config and is exactly what
+  // deployed the `dev` branch on top of the production Worker on
+  // 2026-07-30. See the CLOUDFLARE_ENV gotcha in AGENTS.md.
+  //
+  // Named environments do NOT inherit top-level keys, so name/
+  // compatibility_date/compatibility_flags/observability/assets are
+  // restated in both — omitting `assets` deploys a Worker with no static
+  // files and no SPA fallback, 404ing on every route with no error at
   // deploy time.
   "env": {
+    "production": {
+      "name": "wagnon",
+      "compatibility_date": "2026-07-25",
+      "observability": {
+        "enabled": true
+      },
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application"
+      },
+      "compatibility_flags": [
+        "nodejs_compat"
+      ]
+    },
     "dev": {
       "name": "wagnon-dev",
       "compatibility_date": "2026-07-25",

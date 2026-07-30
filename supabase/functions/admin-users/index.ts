@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
         // into that same map instead of fighting the embed.
         admin
           .from("profiles")
-          .select("id, full_name, phone, email, deleted_at, deleted_by, deleted_email"),
+          .select("id, full_name, phone, email, deleted_at, deleted_by, deleted_email, is_system_account"),
         // super_admin rows are global (college_id null) — include them
         // alongside this college's own roles, or every super_admin
         // silently vanishes from the roster (including the caller,
@@ -168,7 +168,17 @@ Deno.serve(async (req) => {
       }
 
       const users = (authUsers?.users ?? [])
-        .filter((u) => rolesByUser.has(u.id))
+        // is_system_account (e.g. the bootstrap super_admin) never appears
+        // in the roster for any caller — it's a service account, not a
+        // person other admins should see or manage. The activity feed is a
+        // separate code path (activity_log + profiles only) and is
+        // unaffected: this account's actions still show up there.
+        .filter((u) => {
+          if (!rolesByUser.has(u.id)) return false
+          // deno-lint-ignore no-explicit-any -- supabase-js's generated types
+          // don't know about this project's schema.
+          return !(profileById.get(u.id) as any)?.is_system_account
+        })
         .map((u) => {
           // deno-lint-ignore no-explicit-any -- supabase-js's generated types
           // don't know about this project's schema.

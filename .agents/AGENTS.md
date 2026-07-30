@@ -283,6 +283,39 @@ multi-tenant UI yet — see "Known gaps" below.
   "Failed to fetch" and the function is never invoked, so `get_logs` shows
   nothing. Cost a deploy cycle when `admin-users` gained DELETE. Check the
   methods list whenever an Edge Function learns a new verb.
+- **`@cloudflare/vite-plugin` resolves the Cloudflare environment at *build*
+  time and writes the flattened result to `dist/wrangler.json`; `wrangler
+  deploy` then deploys through that file, never `wrangler.jsonc` directly.**
+  Passing `--env X` to the *deploy* step does nothing if the *build* step
+  never set `CLOUDFLARE_ENV` — the flattened config simply has no `env.X`
+  section for `--env` to select, so the flag silently selects nothing and
+  wrangler deploys the top-level config instead. This is exactly what
+  happened rolling out the dev/prod split on 2026-07-30: a push to `dev`
+  logged `Uploaded wagnon` (the production Worker) instead of `wagnon-dev`,
+  and reported success. The only tells were `Uploaded wagnon` where
+  `wagnon-dev` was expected, and `Configuration being used:
+  "dist/wrangler.json"` earlier in the same log. Select the environment on
+  the **build** step via `CLOUDFLARE_ENV=<name>` (see `.github/workflows/
+  deploy.yml`), and verify locally before trusting a green CI checkmark:
+  `CLOUDFLARE_ENV=dev npm run build && grep '"name"' dist/wrangler.json`
+  must print the Worker name you expect.
+- **A Cloudflare Worker can have its own native "Workers Builds" Git
+  integration (Dashboard → Workers & Pages → `<worker>` → Settings →
+  Builds), completely independent of `.github/workflows/deploy.yml`.** If
+  connected, it auto-deploys on pushes using dashboard-configured build
+  settings and env vars that have no relationship to the GitHub Actions
+  workflow or its `VITE_*` values. `wagnon` had this connected when the
+  dev/prod split shipped: even after `deploy.yml` was fixed and genuinely
+  deployed the correct build, this second pipeline kept silently
+  overwriting `wagnon` right back with its own (stale, dev-pointed) build
+  on every push — and it produces **no trace at all** in `gh run list` or
+  anywhere in the GitHub Actions logs, because it isn't a GitHub Actions
+  run. The only way this surfaced was fetching the actually-served JS bundle
+  from the live URL and grepping the embedded Supabase URL, then noticing
+  the asset filenames didn't match any known `deploy.yml` run's build
+  output. If a Worker's live behavior ever doesn't match what the workflow
+  built, check this dashboard setting before spending time re-debugging the
+  workflow file itself.
 
 ## File uploads (Cloudflare R2)
 
