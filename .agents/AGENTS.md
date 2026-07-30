@@ -283,6 +283,22 @@ multi-tenant UI yet — see "Known gaps" below.
   "Failed to fetch" and the function is never invoked, so `get_logs` shows
   nothing. Cost a deploy cycle when `admin-users` gained DELETE. Check the
   methods list whenever an Edge Function learns a new verb.
+- **`@cloudflare/vite-plugin` resolves the Cloudflare environment at *build*
+  time and writes the flattened result to `dist/wrangler.json`; `wrangler
+  deploy` then deploys through that file, never `wrangler.jsonc` directly.**
+  Passing `--env X` to the *deploy* step does nothing if the *build* step
+  never set `CLOUDFLARE_ENV` — the flattened config simply has no `env.X`
+  section for `--env` to select, so the flag silently selects nothing and
+  wrangler deploys the top-level config instead. This is exactly what
+  happened rolling out the dev/prod split on 2026-07-30: a push to `dev`
+  logged `Uploaded wagnon` (the production Worker) instead of `wagnon-dev`,
+  and reported success. The only tells were `Uploaded wagnon` where
+  `wagnon-dev` was expected, and `Configuration being used:
+  "dist/wrangler.json"` earlier in the same log. Select the environment on
+  the **build** step via `CLOUDFLARE_ENV=<name>` (see `.github/workflows/
+  deploy.yml`), and verify locally before trusting a green CI checkmark:
+  `CLOUDFLARE_ENV=dev npm run build && grep '"name"' dist/wrangler.json`
+  must print the Worker name you expect.
 
 ## File uploads (Cloudflare R2)
 
