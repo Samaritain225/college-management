@@ -8,6 +8,8 @@
 // below additionally requires the caller to hold admin/super_admin for
 // the target college.
 import { createClient } from "npm:@supabase/supabase-js@2"
+import { sendEmail } from "../_shared/email.ts"
+import { inviteEmailHtml, inviteEmailSubject } from "../_shared/templates/invite.ts"
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!
@@ -120,6 +122,67 @@ Deno.serve(async (req) => {
     return data?.full_name ?? null
   }
 
+  // ---- Invitation email --------------------------------------------------
+  // Shared by CREATE's first send and the standalone /invite resend. Always
+  // `type: "recovery"`, deliberately, in both cases: `type: "invite"` creates
+  // the user itself and errors on an account that already exists, which
+  // would force two divergent code paths, while `recovery` works uniformly
+  // on any existing account and is semantically exactly "set a password" —
+  // which is what both the first link and every resend actually are.
+  //
+  // Never let a mail failure fail the caller's request: the account already
+  // exists (or already existed) by the time this runs, so surfacing an error
+  // here would claim something that happened did not. Callers get back
+  // { emailSent, emailError } and decide what to tell the admin.
+  async function sendInviteEmail(
+    id: string,
+    email: string,
+    name: string | null
+  ): Promise<{ emailSent: boolean; emailError?: string }> {
+    const apiKey = Deno.env.get("RESEND_API_KEY")
+    const from = Deno.env.get("EMAIL_FROM")
+    const appUrl = Deno.env.get("APP_URL")
+    if (!apiKey || !from || !appUrl) {
+      return { emailSent: false, emailError: "Email non configuré (RESEND_API_KEY/EMAIL_FROM/APP_URL manquant)." }
+    }
+
+    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+      type: "recovery",
+      email,
+      options: { redirectTo: `${appUrl}/bienvenue` },
+    })
+    if (linkErr || !linkData?.properties?.action_link) {
+      return { emailSent: false, emailError: linkErr?.message ?? "Échec de génération du lien." }
+    }
+
+    const [{ data: college }] = await Promise.all([
+      admin.from("colleges").select("name, logo_key").eq("id", targetCollegeId).maybeSingle(),
+    ])
+    const r2Base = Deno.env.get("R2_PUBLIC_BASE_URL")
+    const collegeLogoUrl = college?.logo_key && r2Base ? `${r2Base}/${college.logo_key}` : null
+
+    const emailInput = {
+      collegeName: college?.name ?? "votre collège",
+      collegeLogoUrl,
+      recipientName: name ?? email,
+      actionLink: linkData.properties.action_link,
+    }
+
+    const result = await sendEmail({
+      apiKey,
+      from,
+      to: email,
+      subject: inviteEmailSubject(emailInput),
+      html: inviteEmailHtml(emailInput),
+    })
+
+    if (!result.ok) {
+      console.error(`Invite email failed for ${id}:`, result.error)
+      return { emailSent: false, emailError: result.error }
+    }
+    return { emailSent: true }
+  }
+
   const url = new URL(req.url)
   const segments = url.pathname.split("/").filter(Boolean)
   // .../functions/v1/admin-users[/:id[/:action]]
@@ -215,14 +278,17 @@ Deno.serve(async (req) => {
     if (req.method === "POST" && !targetId) {
       if (!isSuperAdmin && !adminCollegeId) return json({ error: "Forbidden" }, 403)
       const body = await req.json()
-      const { name, email, phone, password, roleId } = body
-      if (!name || !email || !password || !roleId) {
-        return json({ error: "name, email, password, and roleId are required" }, 400)
+      const { name, email, phone, roleId } = body
+      if (!name || !email || !roleId) {
+        return json({ error: "name, email, and roleId are required" }, 400)
       }
 
+      // No password at creation — the account is invited instead (see
+      // sendInviteEmail above). email_confirm stays true because the person
+      // proves ownership of the address by clicking the link, not by a
+      // separate confirmation email.
       const { data: created, error: createErr } = await admin.auth.admin.createUser({
         email,
-        password,
         email_confirm: true,
         user_metadata: { full_name: name },
       })
@@ -230,10 +296,12 @@ Deno.serve(async (req) => {
 
       const newUserId = created.user.id
       // handle_new_user() already inserted a profiles row from user_metadata
-      // — just add the phone number, which that trigger doesn't carry.
-      if (phone) {
-        await admin.from("profiles").update({ phone }).eq("id", newUserId)
-      }
+      // — add the phone number (which that trigger doesn't carry) and arm
+      // the forced-password-setup gate in the same update.
+      await admin
+        .from("profiles")
+        .update({ ...(phone ? { phone } : {}), must_set_password: true })
+        .eq("id", newUserId)
       // super_admin rows must be global (college_id null) — a schema
       // constraint enforces this, so getting it right here avoids a
       // needlessly opaque constraint-violation error.
@@ -243,9 +311,11 @@ Deno.serve(async (req) => {
         college_id: roleId === "super_admin" ? null : targetCollegeId,
       })
 
-      await logAdminAction("USER_CREATE", { name, email, role_id: roleId })
+      const inviteResult = await sendInviteEmail(newUserId, email, name)
 
-      return json({ data: { user: { id: newUserId } } }, 201)
+      await logAdminAction("USER_CREATE", { name, email, role_id: roleId, ...inviteResult })
+
+      return json({ data: { user: { id: newUserId }, ...inviteResult } }, 201)
     }
 
     if (!targetId) return json({ error: "Not found" }, 404)
@@ -266,6 +336,10 @@ Deno.serve(async (req) => {
       const profileUpdate: Record<string, unknown> = {}
       if (name) profileUpdate.full_name = name
       if (phone !== undefined) profileUpdate.phone = phone || null
+      // An admin-set password is always temporary — re-arm the same gate a
+      // brand-new account gets, so the target is forced to replace it with
+      // one only they know.
+      if (password) profileUpdate.must_set_password = true
       if (Object.keys(profileUpdate).length > 0) {
         await admin.from("profiles").update(profileUpdate).eq("id", targetId)
       }
@@ -319,6 +393,32 @@ Deno.serve(async (req) => {
         return "Seul un super administrateur peut agir sur ce compte."
       }
       return null
+    }
+
+    // ---- INVITE (resend) ------------------------------------------------
+    // For an account that has never signed in — the create-time send failed,
+    // or the link expired before the person got back online (the app is
+    // built for ~70% connectivity; see AGENTS.md). Always re-mints a fresh
+    // link, which makes any earlier one dead the moment GoTrue issues this
+    // one — there is no way to have two valid links outstanding.
+    if (req.method === "POST" && action === "invite") {
+      const guardErr = await checkCanActOn("inviter")
+      if (guardErr) return json({ error: guardErr }, targetId === caller.id ? 400 : 403)
+
+      const { data: targetUser, error: targetErr } = await admin.auth.admin.getUserById(targetId)
+      if (targetErr || !targetUser?.user?.email) {
+        return json({ error: targetErr?.message ?? "Utilisateur introuvable." }, 404)
+      }
+
+      const name = await targetName(targetId)
+      const inviteResult = await sendInviteEmail(targetId, targetUser.user.email, name)
+      if (!inviteResult.emailSent) {
+        return json({ error: inviteResult.emailError ?? "Échec de l'envoi." }, 502)
+      }
+
+      await logAdminAction("USER_INVITE", { name, email: targetUser.user.email })
+
+      return json({ data: { ok: true } })
     }
 
     // ---- DEACTIVATE / REACTIVATE --------------------------------------

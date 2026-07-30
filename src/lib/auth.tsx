@@ -42,6 +42,11 @@ export interface AuthUser {
   /** `profiles.avatar_key` — an R2 object key, not a URL. Resolve with
    *  `publicUrl()` from `@/lib/uploads` before rendering. */
   avatarKey: string | null
+  /** `profiles.must_set_password` — true for a brand-new invited account, or
+   *  re-armed whenever an admin sets a password on someone's behalf. Gates
+   *  every route but the password-setup screen; see RequireOnboarded in
+   *  routes.tsx. Cleared only via the `complete_password_setup` RPC. */
+  mustSetPassword: boolean
 }
 
 export type AuthStatus = "checking" | "authenticated" | "unauthenticated"
@@ -86,7 +91,11 @@ export function canManageFinance(user: AuthUser | null): boolean {
 
 async function fetchAuthUser(supabaseUser: SupabaseUser): Promise<AuthUser> {
   const [{ data: profile }, { data: roleRows, error: rolesError }] = await Promise.all([
-    supabase.from("profiles").select("full_name, avatar_key").eq("id", supabaseUser.id).maybeSingle(),
+    supabase
+      .from("profiles")
+      .select("full_name, avatar_key, must_set_password")
+      .eq("id", supabaseUser.id)
+      .maybeSingle(),
     supabase.from("user_roles").select("role_id").eq("user_id", supabaseUser.id),
   ])
 
@@ -104,6 +113,7 @@ async function fetchAuthUser(supabaseUser: SupabaseUser): Promise<AuthUser> {
     // rejects the sign-in), so reaching this point already implies active.
     isActive: true,
     avatarKey: profile?.avatar_key ?? null,
+    mustSetPassword: profile?.must_set_password ?? false,
   }
 }
 

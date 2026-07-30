@@ -15,6 +15,7 @@ import {
   updateAdminUser,
   setAdminUserActive,
   deleteAdminUser,
+  resendAdminUserInvite,
   type ApiUser,
 } from "@/lib/adminUsers"
 import { supabase } from "@/lib/supabase"
@@ -71,6 +72,7 @@ import {
   EyeOff,
   Clock,
   Trash2,
+  Send,
 } from "lucide-react"
 import { ActivityFeed } from "@/features/activity/ActivityFeed"
 import { relativeTime } from "@/features/activity/formatActivity"
@@ -156,13 +158,11 @@ export function UsersPage() {
   // submit attempt), then keeps revalidating on every change — this is what
   // replaces the old hand-rolled debounce-then-check-email-format effect.
   const [showForm, setShowForm] = useState(false)
-  const [showCreatePassword, setShowCreatePassword] = useState(false)
   const createForm = useForm<CreateUserFormValues>({
     resolver: zodResolver(createUserSchema),
     mode: "onTouched",
-    defaultValues: { name: "", email: "", phone: "", password: "", roleId: "" },
+    defaultValues: { name: "", email: "", phone: "", roleId: "" },
   })
-  const createPasswordValue = createForm.watch("password")
 
   // Detail/Edit view state
   const [detailUser, setDetailUser] = useState<ApiUser | null>(null)
@@ -247,21 +247,32 @@ export function UsersPage() {
   // Create user
   // ---------------------------------------------------------------------------
 
-  const CREATE_FIELD_ORDER: (keyof CreateUserFormValues)[] = ["name", "email", "password", "roleId"]
+  const CREATE_FIELD_ORDER: (keyof CreateUserFormValues)[] = ["name", "email", "roleId"]
   const [createGeneralError, setCreateGeneralError] = useState<string | null>(null)
 
   const submitCreate = createForm.handleSubmit(
     async (values) => {
       setCreateGeneralError(null)
       try {
-        await createAdminUser({
+        const { data } = await createAdminUser({
           name: values.name.trim(),
           email: values.email.trim(),
           phone: values.phone?.trim() || null,
-          password: values.password,
           roleId: values.roleId,
         })
-        toast.success("Utilisateur créé avec succès.")
+        // The account exists either way — a mail failure never blocks
+        // creation. Say so plainly rather than a blanket success toast, so
+        // the admin knows to use "Renvoyer l'invitation" from the list.
+        if (data.emailSent) {
+          toast.success("Utilisateur créé — une invitation lui a été envoyée par email.")
+        } else {
+          toast.warning(
+            `Utilisateur créé, mais l'invitation n'a pas pu être envoyée${
+              data.emailError ? ` (${data.emailError})` : ""
+            }. Utilisez "Renvoyer l'invitation" depuis la liste.`,
+            { duration: 10000 }
+          )
+        }
         createForm.reset()
         setShowForm(false)
         await loadData()
@@ -342,6 +353,26 @@ export function UsersPage() {
       toast.error(err instanceof Error ? err.message : "Une erreur est survenue.")
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Resend invitation — for an account that has never signed in
+  // (lastSignInAt === null): the create-time send failed, or the link
+  // expired before the person got back online.
+  // ---------------------------------------------------------------------------
+
+  const [invitingId, setInvitingId] = useState<string | null>(null)
+
+  async function handleResendInvite(id: string) {
+    setInvitingId(id)
+    try {
+      await resendAdminUserInvite(id)
+      toast.success("Invitation renvoyée.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Échec de l'envoi de l'invitation.")
+    } finally {
+      setInvitingId(null)
     }
   }
 
@@ -624,7 +655,15 @@ export function UsersPage() {
                       {editErrors.password && (
                         <p className="text-xs text-negative font-medium">{editErrors.password.message}</p>
                       )}
-                      {editPasswordValue.length > 0 && <PasswordChecklist password={editPasswordValue} />}
+                      {editPasswordValue.length > 0 && (
+                        <>
+                          <PasswordChecklist password={editPasswordValue} />
+                          <p className="text-2xs text-ink-soft">
+                            Ce mot de passe sera temporaire — l'utilisateur devra le remplacer à sa
+                            prochaine connexion.
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -641,11 +680,23 @@ export function UsersPage() {
                   <div className="flex items-center gap-1.5">
                     <Calendar className="size-3.5" /> Compte créé le {new Date(detailUser.createdAt).toLocaleString()}
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <Clock className="size-3.5" />
                     {detailUser.lastSignInAt
                       ? `Dernière connexion le ${new Date(detailUser.lastSignInAt).toLocaleString()}`
                       : "Jamais connecté"}
+                    {!detailUser.lastSignInAt && isAdmin && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs text-teal-950"
+                        disabled={invitingId === detailUser.id}
+                        onClick={() => handleResendInvite(detailUser.id)}
+                      >
+                        <Send className="size-3" /> Renvoyer l'invitation
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -941,7 +992,8 @@ export function UsersPage() {
               Créer un utilisateur
             </DialogTitle>
             <DialogDescription className="text-xs text-ink-soft">
-              Ajouter un nouveau membre et lui attribuer un rôle
+              Ajouter un nouveau membre et lui attribuer un rôle. Une invitation par email lui
+              sera envoyée pour qu'il choisisse lui-même son mot de passe.
             </DialogDescription>
           </DialogHeader>
 
@@ -992,34 +1044,6 @@ export function UsersPage() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="cu-password" className="text-xs font-display font-medium text-ink">
-                Mot de passe *
-              </Label>
-              <div className="relative">
-                <Input
-                  id="cu-password"
-                  type={showCreatePassword ? "text" : "password"}
-                  {...createForm.register("password")}
-                  placeholder="••••••••"
-                  required
-                  aria-invalid={!!createForm.formState.errors.password}
-                  className="border-ink/15 bg-paper text-ink text-sm pr-9"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowCreatePassword((v) => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-soft hover:text-ink"
-                  title={showCreatePassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-                >
-                  {showCreatePassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
-              {createForm.formState.errors.password && (
-                <p className="text-xs text-negative font-medium">{createForm.formState.errors.password.message}</p>
-              )}
-              <PasswordChecklist password={createPasswordValue} />
-            </div>
-            <div className="flex flex-col gap-1.5 sm:col-span-2">
               <Label htmlFor="cu-role" className="text-xs font-display font-medium text-ink">
                 Rôle *
               </Label>
@@ -1179,15 +1203,29 @@ export function UsersPage() {
 
                   {/* Actions */}
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9 hover:text-teal-950"
-                      onClick={() => navigate(`/users/${user.id}`)}
-                      title="Consulter et éditer"
-                    >
-                      <Eye className="size-4" />
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      {!user.lastSignInAt && isAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 text-ink-soft hover:text-teal-950"
+                          onClick={() => handleResendInvite(user.id)}
+                          disabled={invitingId === user.id}
+                          title="Renvoyer l'invitation"
+                        >
+                          <Send className="size-4" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 hover:text-teal-950"
+                        onClick={() => navigate(`/users/${user.id}`)}
+                        title="Consulter et éditer"
+                      >
+                        <Eye className="size-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               )
