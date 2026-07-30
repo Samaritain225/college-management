@@ -60,10 +60,19 @@ export function createAdminUser(input: {
   name: string
   email: string
   phone: string | null
-  password: string
   roleId: string
 }) {
-  return call<{ data: { user: { id: string } } }>("", "POST", input)
+  // No password: the new account is invited by email and sets its own. The
+  // server never fails the create over a mail problem — emailSent/emailError
+  // report what happened so the UI can offer a resend instead.
+  return call<{
+    data: { user: { id: string }; emailSent: boolean; emailError?: string }
+  }>("", "POST", input)
+}
+
+/** Re-sends the invitation link — for an account that never signed in. */
+export function resendAdminUserInvite(id: string) {
+  return call<{ data: { ok: true } }>(`/${id}/invite`, "POST")
 }
 
 export function updateAdminUser(

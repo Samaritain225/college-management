@@ -106,6 +106,49 @@ source of truth, not a count here.
 Workers (not Pages — that line was stale) on every push to main (`06daef5`,
 hardened in `654ae82`/`4ff51c2`).
 
+## In flight — invitation emails and forced onboarding, 2026-07-30
+
+Sam wants a new user created in `UsersPage` to receive an email (via Resend)
+with a one-time link, land on the platform already signed in, and be forced
+to set their own password before anything else is usable. Built on
+`feat/invite-emails-onboarding`, code complete, **not yet configured or
+end-to-end tested** — blocked on Sam's Resend account having no verified
+sending domain, so real delivery only works to the Resend account owner's own
+address until one is verified.
+
+- **Landed**: migration `20260730195256_add_must_set_password_onboarding`
+  (dev only — `profiles.must_set_password`, column-revoked from
+  `authenticated` same as `deleted_at`/`is_system_account`, cleared only via
+  the new `complete_password_setup()` RPC scoped to `auth.uid()`).
+  `admin-users` CREATE no longer accepts a password — it creates the account,
+  arms the flag, and mints+emails a `type: "recovery"` link via the new
+  `POST /admin-users/:id/invite` (also reachable standalone, as a resend). An
+  admin setting a password on the edit form now re-arms the same flag, so an
+  admin-chosen password is always temporary too. New shared
+  `supabase/functions/_shared/email.ts` (Resend POST, env read inside the
+  handler per the storage-sign module-scope gotcha) and `_shared/templates/
+  invite.ts`, meant to be reused by the still-unbuilt expense notifications.
+  Client: `src/lib/supabase.ts` flips `detectSessionInUrl` to `true` (was
+  `false` — would have silently dropped every invite token), `AuthUser` gains
+  `mustSetPassword`, new `SetPasswordPage` + `RequireOnboarded` route wrapper
+  in `routes.tsx` hold a gated user on a set-password screen in place of
+  `AppShell` (deep link survives), `UsersPage` drops the password field from
+  create and adds a "Renvoyer l'invitation" action. `tsc -b --force`, oxlint,
+  and `npm run build` all clean. `admin-users` deployed to dev (v19),
+  confirmed booting via a live `OPTIONS` 200 — not yet exercised by an actual
+  invite send.
+- **Not yet done**: `RESEND_API_KEY`/`EMAIL_FROM`/`APP_URL` secrets are unset
+  on both projects — until then `sendInviteEmail` returns `emailSent: false`
+  with a config-error message rather than throwing, so account creation still
+  works, just without mail. Also unset: `R2_PUBLIC_BASE_URL` as an edge
+  secret (separate from the existing `VITE_`-prefixed client one — Deno can't
+  read Vite env vars), which only affects whether the email shows a college
+  logo, nothing functional. Auth → Redirect URLs needs `/bienvenue` added for
+  both environments plus localhost. Auth → Email OTP expiry (default 1h)
+  worth raising given the ~70% connectivity this app targets. None of this
+  has been end-to-end verified live — see the plan's verification section
+  for the split (Sam clicks through, agent reads the result back over MCP).
+
 ## In flight — dev/prod environment split, 2026-07-30
 
 Sam created a second Supabase project, `college-management-prod`

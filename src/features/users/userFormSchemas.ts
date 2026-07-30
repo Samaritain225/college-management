@@ -1,6 +1,8 @@
 import { z } from "zod"
 import { passwordMeetsPolicy, PASSWORD_POLICY_MESSAGE } from "@/lib/passwordPolicy"
 
+// No password field — the account is created without one and the person
+// sets their own via the invitation email (see admin-users' sendInviteEmail).
 export const createUserSchema = z.object({
   name: z
     .string()
@@ -9,10 +11,6 @@ export const createUserSchema = z.object({
     .max(255, "Le nom ne doit pas dépasser 255 caractères."),
   email: z.string().trim().min(1, "L'email est requis.").email("Adresse email invalide."),
   phone: z.string().trim().optional(),
-  password: z
-    .string()
-    .min(1, "Le mot de passe est requis.")
-    .refine(passwordMeetsPolicy, PASSWORD_POLICY_MESSAGE),
   roleId: z.string().min(1, "Le rôle est requis."),
 })
 
