@@ -1,0 +1,112 @@
+<h2>How should the receipt preview live inside the expense dialog?</h2>
+<p class="subtitle">All options support JPEG/JPG, PNG, WebP, and PDF. Click the layout you prefer.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#f4f1e9">
+      <div style="max-width:420px;margin:auto;background:white;border:1px solid #ddd8cd;border-radius:14px;box-shadow:0 10px 30px rgba(25,45,39,.10);overflow:hidden">
+        <div style="padding:14px 16px;border-bottom:1px solid #ebe6dc">
+          <strong style="font-size:15px">Achat de fournitures scolaires</strong>
+          <div style="font-size:11px;color:#6b746f;margin-top:3px">125 000 F CFA · 28 juillet 2026</div>
+        </div>
+        <div style="padding:14px 16px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#75817b;margin-bottom:7px">Pièce justificative</div>
+          <div style="height:190px;border:1px solid #ded9cf;border-radius:10px;background:linear-gradient(135deg,#fffdf8,#ece6da);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
+            <div style="width:124px;height:164px;background:white;box-shadow:0 4px 16px rgba(0,0,0,.16);padding:13px;transform:rotate(-2deg)">
+              <div style="height:8px;background:#264e46;width:65%;margin-bottom:12px"></div>
+              <div style="height:4px;background:#cac5bb;margin:7px 0"></div>
+              <div style="height:4px;background:#cac5bb;margin:7px 0;width:80%"></div>
+              <div style="height:4px;background:#cac5bb;margin:7px 0;width:92%"></div>
+              <div style="height:1px;background:#ddd7cd;margin:14px 0"></div>
+              <div style="height:5px;background:#264e46;margin-left:auto;width:46%"></div>
+            </div>
+            <span style="position:absolute;right:8px;bottom:8px;background:rgba(24,48,42,.88);color:white;border-radius:6px;padding:4px 7px;font-size:9px">Agrandir</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:10px;color:#68716d">
+            <span>reçu-fournitures.jpg</span><span style="color:#174f45;font-weight:600">Ouvrir l’original ↗</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Full-width, contained preview</h3>
+      <p>The receipt is immediately readable without dominating the dialog. Click the preview to enlarge it; keep an original-file link as a secondary action.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#f4f1e9">
+      <div style="max-width:420px;margin:auto;background:white;border:1px solid #ddd8cd;border-radius:14px;box-shadow:0 10px 30px rgba(25,45,39,.10);padding:16px">
+        <strong style="font-size:15px">Achat de fournitures scolaires</strong>
+        <div style="font-size:11px;color:#6b746f;margin:4px 0 17px">125 000 F CFA · 28 juillet 2026</div>
+        <div style="display:grid;grid-template-columns:104px 1fr;gap:14px;align-items:start">
+          <div style="height:138px;border:1px solid #ded9cf;border-radius:9px;background:white;box-shadow:0 3px 12px rgba(0,0,0,.08);padding:10px">
+            <div style="height:6px;background:#264e46;width:60%;margin-bottom:12px"></div>
+            <div style="height:3px;background:#cac5bb;margin:7px 0"></div>
+            <div style="height:3px;background:#cac5bb;margin:7px 0;width:76%"></div>
+            <div style="height:3px;background:#cac5bb;margin:7px 0;width:90%"></div>
+          </div>
+          <div>
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#75817b">Pièce justificative</div>
+            <div style="font-size:12px;font-weight:650;margin-top:6px">reçu-fournitures.jpg</div>
+            <p style="font-size:10px;color:#6b746f;line-height:1.45;margin:6px 0 12px">Image JPEG · 842 Ko</p>
+            <button class="mock-button" style="font-size:10px">Agrandir</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Compact thumbnail</h3>
+      <p>Keeps the dialog short, but the receipt is usually too small to inspect until the user clicks it.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:18px;background:#f4f1e9">
+      <div style="max-width:540px;margin:auto;background:white;border:1px solid #ddd8cd;border-radius:14px;box-shadow:0 10px 30px rgba(25,45,39,.10);overflow:hidden">
+        <div style="display:grid;grid-template-columns:1fr 1.15fr;min-height:248px">
+          <div style="padding:16px;border-right:1px solid #ebe6dc">
+            <strong style="font-size:14px">Achat de fournitures scolaires</strong>
+            <div style="margin-top:18px;font-size:10px;color:#75817b">MONTANT</div>
+            <div style="font-size:16px;font-weight:750;color:#183f38;margin-top:3px">125 000 F CFA</div>
+            <div style="margin-top:16px;font-size:10px;color:#75817b">BÉNÉFICIAIRE</div>
+            <div style="font-size:11px;margin-top:3px">Librairie du Centre</div>
+          </div>
+          <div style="padding:14px;background:#f5f2eb">
+            <div style="height:190px;border:1px solid #ded9cf;border-radius:9px;background:white;display:flex;align-items:center;justify-content:center">
+              <div style="width:112px;height:154px;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.15);padding:12px">
+                <div style="height:7px;background:#264e46;width:64%;margin-bottom:12px"></div>
+                <div style="height:4px;background:#cac5bb;margin:7px 0"></div>
+                <div style="height:4px;background:#cac5bb;margin:7px 0;width:80%"></div>
+                <div style="height:4px;background:#cac5bb;margin:7px 0;width:91%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Two-column inspector</h3>
+      <p>Strong desktop comparison between data and evidence, but it makes the existing dialog wider and collapses awkwardly on phones.</p>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>Recommendation: A</h4>
+    <ul>
+      <li>Works naturally with the current single-column expense dialog</li>
+      <li>Uses the same frame for images and embedded PDFs</li>
+      <li>Responsive without inventing a second mobile layout</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>Shared behavior</h4>
+    <ul>
+      <li>Preview has a bounded height and uses contain, never crop</li>
+      <li>Loading, unavailable, and unsupported states stay inside the frame</li>
+      <li>Original file remains available as a fallback action</li>
+    </ul>
+  </div>
+</div>

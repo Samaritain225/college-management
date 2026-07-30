@@ -1,0 +1,78 @@
+<h2>Which button system feels right for Wagnon?</h2>
+<p class="subtitle">Compare the same expense actions. The difference is only the shape rule.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f7f5ef;padding:22px;min-height:220px;color:#173b38">
+      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #d8ded9;padding-bottom:16px;margin-bottom:20px">
+        <div>
+          <div style="font-size:20px;font-weight:750">Dépenses</div>
+          <div style="font-size:11px;color:#71817c;margin-top:3px">Suivi des sorties de caisse</div>
+        </div>
+        <button style="border:0;border-radius:6px;background:#123f3a;color:white;padding:10px 15px;font-weight:700">+ Enregistrer une dépense</button>
+      </div>
+      <div style="border:1px solid #d8ded9;border-radius:8px;background:white;padding:18px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:16px">Nouvelle dépense · 125 000 F CFA</div>
+        <div style="display:flex;justify-content:flex-end;gap:9px">
+          <button style="border:1px solid #cad3ce;border-radius:6px;background:white;color:#173b38;padding:9px 15px">Annuler</button>
+          <button style="border:0;border-radius:6px;background:#123f3a;color:white;padding:9px 15px;font-weight:700">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Unified rounded rectangle · Recommended</h3>
+      <p>All text buttons use the same moderate radius. Icon-only controls may remain circular or square by function.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f7f5ef;padding:22px;min-height:220px;color:#173b38">
+      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #d8ded9;padding-bottom:16px;margin-bottom:20px">
+        <div>
+          <div style="font-size:20px;font-weight:750">Dépenses</div>
+          <div style="font-size:11px;color:#71817c;margin-top:3px">Suivi des sorties de caisse</div>
+        </div>
+        <button style="border:0;border-radius:999px;background:#123f3a;color:white;padding:10px 15px;font-weight:700">+ Enregistrer une dépense</button>
+      </div>
+      <div style="border:1px solid #d8ded9;border-radius:8px;background:white;padding:18px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:16px">Nouvelle dépense · 125 000 F CFA</div>
+        <div style="display:flex;justify-content:flex-end;gap:9px">
+          <button style="border:1px solid #cad3ce;border-radius:6px;background:white;color:#173b38;padding:9px 15px">Annuler</button>
+          <button style="border:0;border-radius:999px;background:#123f3a;color:white;padding:9px 15px;font-weight:700">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Pills for primary actions</h3>
+      <p>Primary actions are pill-shaped; secondary and utility buttons use the standard moderate radius.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f7f5ef;padding:22px;min-height:220px;color:#173b38">
+      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #d8ded9;padding-bottom:16px;margin-bottom:20px">
+        <div>
+          <div style="font-size:20px;font-weight:750">Dépenses</div>
+          <div style="font-size:11px;color:#71817c;margin-top:3px">Suivi des sorties de caisse</div>
+        </div>
+        <button style="border:0;border-radius:999px;background:#123f3a;color:white;padding:10px 15px;font-weight:700">+ Enregistrer une dépense</button>
+      </div>
+      <div style="border:1px solid #d8ded9;border-radius:8px;background:white;padding:18px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:16px">Nouvelle dépense · 125 000 F CFA</div>
+        <div style="display:flex;justify-content:flex-end;gap:9px">
+          <button style="border:1px solid #cad3ce;border-radius:999px;background:white;color:#173b38;padding:9px 15px">Annuler</button>
+          <button style="border:0;border-radius:999px;background:#123f3a;color:white;padding:9px 15px;font-weight:700">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — All text buttons as pills</h3>
+      <p>Friendly and prominent, but visually louder in dense tables, dialogs, and administrative screens.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <div class="label">Rule shared by all options</div>
+  <p style="margin-top:8px">Status badges stay pill-shaped. Inputs, selects, table controls, and ordinary text buttons follow the chosen system. Currency shown to users becomes “F CFA”; database values remain integer XOF internally.</p>
+</div>
