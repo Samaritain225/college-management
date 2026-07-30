@@ -2,8 +2,31 @@ import { useEffect, useMemo, useState } from "react"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { focusFirstInvalidField } from "@/lib/formFocus"
-import { investorFormSchema, NO_LINKED_ACCOUNT, type InvestorFormValues } from "./investorFormSchemas"
+import {
+  investorFormSchema,
+  investorCreateFormSchema,
+  contributionFormSchema,
+  CONTRIBUTION_METHODS,
+  NO_LINKED_ACCOUNT,
+  type InvestorFormValues,
+  type InvestorCreateFormValues,
+  type ContributionFormValues,
+} from "./investorFormSchemas"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { format, startOfToday } from "date-fns"
+import { fr } from "date-fns/locale"
+import { cn } from "@/lib/utils"
 import { StatCard } from "@/components/StatCard"
 import { useNavigate, useParams } from "react-router-dom"
 import { useAuth, canManageFinance } from "@/lib/auth"
@@ -36,6 +59,7 @@ import {
   updateInvestor,
   getInvestorStandings,
   listContributions,
+  addContribution,
   type InvestorStanding,
   type Contribution,
 } from "@/lib/queries"
@@ -52,10 +76,17 @@ import {
   Scale,
   Eye,
   ArrowLeft,
-  Calendar,
+  Calendar as CalendarIcon,
   Phone,
   Search,
+  PlusCircle,
 } from "lucide-react"
+
+function formatAmountInput(val: string): string {
+  const digits = val.replace(/\D/g, "")
+  if (!digits) return ""
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+}
 
 type LinkableUser = ApiUser
 
@@ -90,11 +121,23 @@ export function InvestorsPage({
   const [investorContribs, setInvestorContribs] = useState<Contribution[]>([])
 
   // Create form state — react-hook-form + zod (investorFormSchemas.ts),
-  // same pattern as UsersPage/ExpensesPage.
-  const createForm = useForm<InvestorFormValues>({
-    resolver: zodResolver(investorFormSchema),
+  // same pattern as UsersPage/ExpensesPage. Uses investorCreateFormSchema
+  // (adds membershipFee) rather than the shared investorFormSchema editForm
+  // uses — see the comment on that schema for why it's create-only.
+  const createForm = useForm<InvestorCreateFormValues>({
+    resolver: zodResolver(investorCreateFormSchema),
     mode: "onTouched",
-    defaultValues: { name: "", phone: "", contribution: "", userId: NO_LINKED_ACCOUNT },
+    defaultValues: { name: "", phone: "", contribution: "", membershipFee: "", userId: NO_LINKED_ACCOUNT },
+  })
+
+  // "Nouveau versement" dialog state — records a payment against the
+  // currently open investor's reliquat (cotisation) or a corrective/
+  // historical adhésion entry.
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
+  const paymentForm = useForm<ContributionFormValues>({
+    resolver: zodResolver(contributionFormSchema),
+    mode: "onTouched",
+    defaultValues: { type: "cotisation", amount: "", paidAt: startOfToday(), method: "", note: "" },
   })
 
   // Edit form state — the inline table-row editor. No `userId` field is
@@ -159,16 +202,24 @@ export function InvestorsPage({
   // Create Investor
   // ---------------------------------------------------------------------------
 
-  const CREATE_FIELD_ORDER: (keyof InvestorFormValues)[] = ["name", "phone", "contribution", "userId"]
+  const CREATE_FIELD_ORDER: (keyof InvestorCreateFormValues)[] = [
+    "name",
+    "phone",
+    "contribution",
+    "membershipFee",
+    "userId",
+  ]
 
   const submitCreate = createForm.handleSubmit(
     async (values) => {
       const amount = Number(values.contribution.replace(/\D/g, ""))
+      const membershipFee = Number(values.membershipFee.replace(/\D/g, ""))
       try {
         await addInvestor({
           name: values.name.trim(),
           phone: values.phone?.trim() || null,
           agreedContribution: amount,
+          membershipFee,
           userId: values.userId === NO_LINKED_ACCOUNT ? null : values.userId,
         })
 
@@ -236,6 +287,40 @@ export function InvestorsPage({
       const firstMessage = EDIT_FIELD_ORDER.map((key) => errors[key]?.message).find(Boolean)
       if (firstMessage) toast.error(firstMessage)
     }
+  )
+
+  // ---------------------------------------------------------------------------
+  // Record a payment (Nouveau versement) against the open investor
+  // ---------------------------------------------------------------------------
+
+  const PAYMENT_FIELD_ORDER: (keyof ContributionFormValues)[] = ["type", "amount", "paidAt", "method", "note"]
+
+  const submitPayment = paymentForm.handleSubmit(
+    async (values) => {
+      if (!selectedInvestor) return
+      const amount = Number(values.amount.replace(/\D/g, ""))
+      try {
+        await addContribution({
+          investorId: selectedInvestor.id,
+          type: values.type,
+          amount,
+          paidAt: values.paidAt.toISOString(),
+          method: values.method || null,
+          note: values.note?.trim() || null,
+        })
+
+        toast.success("Versement enregistré avec succès.")
+        setPaymentDialogOpen(false)
+        await refresh()
+        const all = await listContributions()
+        setInvestorContribs(all.filter((c) => c.investor_id === selectedInvestor.id))
+        if (onChange) onChange()
+      } catch (err) {
+        toast.error("Erreur lors de l'enregistrement du versement.")
+        console.error(err)
+      }
+    },
+    (errors) => focusFirstInvalidField(errors, PAYMENT_FIELD_ORDER, paymentForm.setFocus)
   )
 
   // ---------------------------------------------------------------------------
@@ -365,7 +450,7 @@ export function InvestorsPage({
                     </span>
                   )}
                   <span className="flex items-center gap-1">
-                    <Calendar className="size-3" />
+                    <CalendarIcon className="size-3" />
                     Inscrit le {new Date(selectedInvestor.joined_at).toLocaleDateString("fr-FR")}
                   </span>
                 </div>
@@ -458,6 +543,20 @@ export function InvestorsPage({
             <h3 className="font-display font-semibold text-sm text-ink">
               Historique des versements ({investorContribs.length})
             </h3>
+            {canManage && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  paymentForm.reset({ type: "cotisation", amount: "", paidAt: startOfToday(), method: "", note: "" })
+                  setPaymentDialogOpen(true)
+                }}
+                className="text-xs font-display flex items-center gap-1.5"
+              >
+                <PlusCircle className="size-3.5" />
+                Nouveau versement
+              </Button>
+            )}
           </div>
 
           <div className="rounded-md border border-ink/10 bg-paper overflow-hidden">
@@ -466,6 +565,7 @@ export function InvestorsPage({
                 <TableHeader>
                   <TableRow className="border-b border-ink/10">
                     <TableHead className="text-xs font-display font-semibold text-ink-soft">Date</TableHead>
+                    <TableHead className="text-xs font-display font-semibold text-ink-soft">Type</TableHead>
                     <TableHead className="text-xs font-display font-semibold text-ink-soft text-right">Montant</TableHead>
                     <TableHead className="text-xs font-display font-semibold text-ink-soft">Mode de paiement</TableHead>
                     <TableHead className="text-xs font-display font-semibold text-ink-soft">Note / Libellé</TableHead>
@@ -477,6 +577,11 @@ export function InvestorsPage({
                       <TableCell className="text-xs text-ink whitespace-nowrap">
                         {new Date(c.paid_at).toLocaleDateString("fr-FR")}
                       </TableCell>
+                      <TableCell className="text-xs">
+                        <Badge variant={c.type === "adhesion" ? "neutral" : "positive"}>
+                          {c.type === "adhesion" ? "Adhésion" : "Cotisation"}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-xs font-display font-bold text-positive text-right whitespace-nowrap">
                         +{formatMoney(c.amount)}
                       </TableCell>
@@ -486,7 +591,7 @@ export function InvestorsPage({
                   ))}
                   {investorContribs.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center h-20 text-xs text-ink-soft italic">
+                      <TableCell colSpan={5} className="text-center h-20 text-xs text-ink-soft italic">
                         Aucun versement enregistré pour cet investisseur.
                       </TableCell>
                     </TableRow>
@@ -496,6 +601,165 @@ export function InvestorsPage({
             </div>
           </div>
         </Card>
+
+        {/* max-h + overflow-y-auto: DialogContent is `fixed` with no height
+            cap of its own — see the same note on ExpensesPage's create
+            dialog, same gotcha applies here. */}
+        <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+          <DialogContent
+            showCloseButton={false}
+            className="max-h-[90svh] overscroll-contain overflow-x-hidden overflow-y-auto border border-ink/10 bg-paper p-6 sm:max-w-md sm:p-7"
+            onPointerDownOutside={(e) => e.preventDefault()}
+            onInteractOutside={(e) => e.preventDefault()}
+          >
+            <DialogHeader className="flex-row items-start justify-between gap-3 space-y-0 text-left">
+              <div className="flex min-w-0 flex-col gap-1">
+                <DialogTitle className="flex items-center gap-2 text-lg font-display font-bold text-ink">
+                  <PlusCircle className="size-5 text-teal-950" />
+                  Nouveau versement
+                </DialogTitle>
+                <DialogDescription className="text-xs text-ink-soft">
+                  Enregistrer un paiement reçu de {selectedInvestor.name}
+                </DialogDescription>
+              </div>
+              <DialogClose asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Fermer"
+                  title="Fermer"
+                  disabled={paymentForm.formState.isSubmitting}
+                  className="-mr-3 -mt-3 max-md:size-11 md:-mr-2 md:-mt-2"
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </DialogClose>
+            </DialogHeader>
+
+            <form onSubmit={submitPayment} className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <Label htmlFor="payment-type" className="text-xs font-display font-medium text-ink">Type de versement</Label>
+                <Controller
+                  control={paymentForm.control}
+                  name="type"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="payment-type" ref={field.ref} className="w-full bg-paper border-ink/15 text-sm text-ink max-md:!h-11">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-paper border-ink/10">
+                        <SelectItem value="cotisation">Cotisation</SelectItem>
+                        <SelectItem value="adhesion">Adhésion</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="payment-amount" className="text-xs font-display font-medium text-ink">Montant (F CFA)</Label>
+                  <div className="relative">
+                    <Input
+                      id="payment-amount"
+                      inputMode="numeric"
+                      placeholder="500 000"
+                      className="pr-12 text-sm font-semibold border-ink/15 bg-paper text-ink max-md:h-11"
+                      {...paymentForm.register("amount", {
+                        onChange: (e) => {
+                          e.target.value = formatAmountInput(e.target.value)
+                        },
+                      })}
+                      aria-invalid={!!paymentForm.formState.errors.amount}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-soft pointer-events-none">
+                      F CFA
+                    </span>
+                  </div>
+                  {paymentForm.formState.errors.amount && (
+                    <p className="text-xs text-negative font-medium">{paymentForm.formState.errors.amount.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="payment-paidAt" className="text-xs font-display font-medium text-ink">Date du versement</Label>
+                  <Controller
+                    control={paymentForm.control}
+                    name="paidAt"
+                    render={({ field }) => (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            id="payment-paidAt"
+                            ref={field.ref}
+                            type="button"
+                            variant="outline"
+                            className={cn(
+                              "h-10 w-full justify-start text-left text-xs font-normal bg-paper border-ink/15 text-ink max-md:h-11",
+                              !field.value && "text-ink-soft"
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 size-4 text-ink-soft" />
+                            {field.value ? format(field.value, "PPP", { locale: fr }) : <span>Choisir une date…</span>}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0 bg-paper border-ink/10" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            locale={fr}
+                            disabled={{ after: startOfToday() }}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                  />
+                  {paymentForm.formState.errors.paidAt && (
+                    <p className="text-xs text-negative font-medium">{paymentForm.formState.errors.paidAt.message}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="payment-method" className="text-xs font-display font-medium text-ink">Mode de paiement (facultatif)</Label>
+                <Controller
+                  control={paymentForm.control}
+                  name="method"
+                  render={({ field }) => (
+                    <Select value={field.value || undefined} onValueChange={field.onChange}>
+                      <SelectTrigger id="payment-method" ref={field.ref} className="w-full bg-paper border-ink/15 text-sm text-ink max-md:!h-11">
+                        <SelectValue placeholder="Non précisé" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-paper border-ink/10">
+                        {CONTRIBUTION_METHODS.map((m) => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="payment-note" className="text-xs font-display font-medium text-ink">Note (facultatif)</Label>
+                <Input
+                  id="payment-note"
+                  {...paymentForm.register("note")}
+                  placeholder="ex. Versement de la 3e tranche"
+                  className="text-xs border-ink/15 bg-paper text-ink max-md:h-11"
+                />
+              </div>
+
+              <DialogFooter className="pt-3 border-t border-ink/10 gap-2 sm:gap-0">
+                <Button type="submit" disabled={paymentForm.formState.isSubmitting} className="max-md:h-11">
+                  {paymentForm.formState.isSubmitting ? "Enregistrement…" : "Enregistrer le versement"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -569,6 +833,20 @@ export function InvestorsPage({
                 />
                 {createForm.formState.errors.contribution && (
                   <p className="text-xs text-negative font-medium">{createForm.formState.errors.contribution.message}</p>
+                )}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="ci-membership-fee" className="text-xs font-display font-medium text-ink">Droit d'adhésion (F CFA) *</Label>
+                <Input
+                  id="ci-membership-fee"
+                  {...createForm.register("membershipFee")}
+                  placeholder="100 000"
+                  aria-invalid={!!createForm.formState.errors.membershipFee}
+                  className="border-ink/15 bg-paper text-ink text-sm"
+                  required
+                />
+                {createForm.formState.errors.membershipFee && (
+                  <p className="text-xs text-negative font-medium">{createForm.formState.errors.membershipFee.message}</p>
                 )}
               </div>
               <div className="flex flex-col gap-1.5">

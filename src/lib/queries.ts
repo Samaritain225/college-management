@@ -60,6 +60,7 @@ export async function addInvestor(input: {
   name: string
   phone?: string | null
   agreedContribution: number
+  membershipFee: number
   joinedAt?: string
 }): Promise<Investor> {
   const joinedAt = input.joinedAt || new Date().toISOString()
@@ -72,11 +73,25 @@ export async function addInvestor(input: {
       name: input.name,
       phone: input.phone ?? null,
       target_contribution: input.agreedContribution,
+      membership_fee: input.membershipFee,
       joined_at: joinedAt,
     })
     .select("id")
     .single()
   const row = unwrap(res)
+
+  // Recording the adhésion as a real contribution (not just the investors
+  // row's membership_fee) is what makes it count toward college_pool — see
+  // the addContribution comment below. Not a DB transaction (nothing else in
+  // this file uses one either): if this second insert fails, the investor
+  // row still exists but with no matching adhésion contribution yet, the
+  // same recoverable state a later manual "Nouveau versement" would fix.
+  await addContribution({
+    investorId: row.id,
+    type: "adhesion",
+    amount: input.membershipFee,
+    paidAt: joinedAt,
+  })
 
   return {
     id: row.id,
@@ -119,9 +134,12 @@ export async function getPoolTotal(): Promise<number> {
   return investors.reduce((sum, inv) => sum + inv.agreed_contribution, 0)
 }
 
+export type ContributionType = "adhesion" | "cotisation"
+
 export interface Contribution {
   id: string
   investor_id: string
+  type: ContributionType
   amount: number
   paid_at: string
   method: string
@@ -132,7 +150,7 @@ export interface Contribution {
 export async function listContributions(): Promise<Contribution[]> {
   const res = await supabase
     .from("contributions")
-    .select("id, investor_id, amount, paid_at, method, note, recorded_by")
+    .select("id, investor_id, type, amount, paid_at, method, note, recorded_by")
     .eq("college_id", COLLEGE_ID)
     .order("paid_at", { ascending: true })
   const rows = unwrap(res)
@@ -140,12 +158,58 @@ export async function listContributions(): Promise<Contribution[]> {
   return rows.map((r: any) => ({
     id: r.id,
     investor_id: r.investor_id,
+    type: r.type,
     amount: Number(r.amount),
     paid_at: r.paid_at,
     method: r.method ?? "",
     note: r.note,
     recorded_by: r.recorded_by,
   }))
+}
+
+// Records a payment against an investor's target_contribution (cotisation)
+// or their one-time entry fee (adhesion). investor_standings computes `owed`
+// from the sum of cotisation contributions live — this never touches that
+// column directly, per the "derived numbers are never stored" rule.
+export async function addContribution(input: {
+  investorId: string
+  type: ContributionType
+  amount: number
+  paidAt?: string
+  method?: string | null
+  note?: string | null
+}): Promise<Contribution> {
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) throw new Error("Not authenticated")
+
+  const paidAt = input.paidAt || new Date().toISOString()
+
+  const res = await supabase
+    .from("contributions")
+    .insert({
+      college_id: COLLEGE_ID,
+      investor_id: input.investorId,
+      type: input.type,
+      amount: input.amount,
+      paid_at: paidAt,
+      method: input.method || null,
+      note: input.note || null,
+      recorded_by: auth.user.id,
+    })
+    .select("id, investor_id, type, amount, paid_at, method, note, recorded_by")
+    .single()
+  const row = unwrap(res)
+
+  return {
+    id: row.id,
+    investor_id: row.investor_id,
+    type: row.type,
+    amount: Number(row.amount),
+    paid_at: row.paid_at,
+    method: row.method ?? "",
+    note: row.note,
+    recorded_by: row.recorded_by,
+  }
 }
 
 export interface InvestorStanding extends Investor {
