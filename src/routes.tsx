@@ -149,11 +149,6 @@ export const router = createBrowserRouter([
       { path: "profile", element: <Navigate to="/settings?tab=profile" replace /> },
       { path: "settings", element: <SettingsPage />, handle: { label: "Paramètres" } },
 
-      // Stable redirectTo target for the invite/recovery email — exists only
-      // so GoTrue has a fixed URL to send the token to. RequireOnboarded
-      // (above) is what actually takes over from here while the gate is set.
-      { path: "bienvenue", element: <Navigate to="/" replace /> },
-
       { path: "*", element: <NotFoundView /> },
     ],
   },

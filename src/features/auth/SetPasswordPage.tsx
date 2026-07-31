@@ -37,6 +37,25 @@ export function SetPasswordPage() {
     async (values) => {
       setSubmitting(true)
       try {
+        // GoTrue's own same-password enforcement isn't guaranteed across
+        // versions, and this is the one place where "the admin-set password
+        // must not survive" is a hard requirement, not a nicety — so it's
+        // checked explicitly rather than assumed. Attempting to sign in with
+        // the *new* value while still on the temporary-password session: if
+        // it succeeds, the new value is identical to the current password
+        // (a wrong-password attempt fails instead, which is the expected,
+        // desired outcome here).
+        if (user?.email) {
+          const { error: probeErr } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password: values.password,
+          })
+          if (!probeErr) {
+            toast.error("Le nouveau mot de passe doit être différent de celui qui vous a été fourni.")
+            return
+          }
+        }
+
         const { error: updateErr } = await supabase.auth.updateUser({ password: values.password })
         if (updateErr) throw updateErr
 

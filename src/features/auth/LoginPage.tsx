@@ -231,7 +231,7 @@ export function LoginPage() {
                      id="login-email"
                      type="email"
                      {...loginForm.register("email")}
-                     placeholder="nom@college.ci"
+                     placeholder="Veuillez saisir votre email"
                      aria-invalid={!!loginForm.formState.errors.email}
                      className="border-ink/15 bg-paper text-ink text-sm"
                      required
